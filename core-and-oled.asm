@@ -12,7 +12,7 @@
 ;;;
 ;;; Code conventions:
 ;;; - INDF0 is a scratch register
-;;; - function pass arguments in frs0[-1] and so on
+;;; - function pass octet arguments in W, INDF0, addresses in FSR1
 ;;; - The fact that direct addresses are used is a misfeature to fix eventually
 ;;;
         list p=16F18855
@@ -297,12 +297,13 @@ send_i2c_address:
 send_i2c_octet:
 	movlb 0x03
 	POP
-	movwf 0x0c		; SSP1BUF
+	movwf SSP1BUF		; SSP1BUF
 	call wait_clean_sspif
+
 	movlb 0x03
 	btfss 0x11, 6 		; ACKSTAT
 	return
-	goto got_noack
+	goto got_noack 		; flag: delete
 
 got_noack:
 	call put_string_in_code
@@ -326,7 +327,7 @@ send_oled_cmd_or_data:
 send_oled_cmds:
 	;; send commands from IFR1 till zero byte
 	call tos_to_fsr1
-	PUSH_VALUE 0x78
+	PUSH_VALUE OLED_I2C_ADDRESS
 	call send_i2c_address
 	call oled_more_cmds
 	goto fsr1_to_tos
