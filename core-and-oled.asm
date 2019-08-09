@@ -329,6 +329,9 @@ send_oled_cmds:
 	call tos_to_fsr1
 	PUSH_VALUE 0x78
 	call send_i2c_address
+	call oled_more_cmds
+	goto fsr1_to_tos
+
 oled_more_cmds:
 	moviw 1
 	IFZERO goto send_i2c_stop
@@ -339,9 +342,20 @@ oled_more_cmds:
 	call send_i2c_octet
 	goto oled_more_cmds
 
-oled_after_cmds:
-	call send_i2c_stop
-	goto fsr1_to_tos
+send_oled_data_fsr1:
+	;; send W commands from IFR1
+	movwf 0x7f
+	PUSH_VALUE 0x78
+	call send_i2c_address
+	PUSH_VALUE 0x40		; continuation, next is data
+	call send_i2c_octet
+oled_more_data:
+	moviw 1++
+	movwi 0++
+	call send_i2c_octet
+	decfsz 0x7f
+	goto oled_more_data
+	goto send_i2c_stop
 
 send_oled_data:
 	PUSH_VALUE 0xc0		; no continuation, next is command
@@ -385,15 +399,14 @@ oled_put_picture1:
 	OLED_CMD 0xB0		; row 0
 	OLED_CMD 0x10		; col 0
 	OLED_CMD 0x00		; col 0
-	movlw 39
-	movwf 0
-fill_in_aa:
-	incf 4
-	OLED_DATA 0xAA
-	decf 4
-	decfsz 0, F
-	goto fill_in_aa
-	return
+	MOVLWF FSR1H, high(random_image)
+	MOVLWF FSR1L, low(random_image)
+	movlw 12
+	goto send_oled_data_fsr1
+
+random_image:
+	dt 0x3c, 0x3c, 0xc3, 0xc3, 0x3c, 0x3c
+	dt 0x3c, 0x3c, 0xc3, 0xc3, 0x3c, 0x3c
 
 	CONFIG RSTOSC=HFINT1, FEXTOSC=OFF, ZCD=ON, WDTE=OFF, LVP=OFF
 	end
