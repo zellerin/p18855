@@ -17,24 +17,44 @@
 ;;;
         list p=16F18855
 	org 0
+	include p16f18855.inc
 
 MOVLWF  macro field, value
 	movlw value
-	movwf (field) & 0x7f
+	movwf field
+	endm
+
+IFZERO  macro cmd
+	btfsc   0x03, 2
+	cmd
+	endm
+
+IFCARRY macro cmd
+	btfsc 0x03, 0
+	cmd
+	endm
+
+IFNCARRY macro cmd
+	btfss 0x03, 0
+	cmd
+	endm
+
+MOVLBS	macro bank
+	BANKSEL bank*128
 	endm
 
 main:
 ;;; clean_pmd:
-	movlb   0x0f
-	clrf    0x16
-	clrf    0x17
-	clrf    0x18
-	clrf    0x19
-	clrf    0x1a
-	clrf    0x1b
+	banksel PMD0
+	clrf    PMD0
+	clrf    PMD1
+	clrf    PMD2
+	clrf    PMD3
+	clrf    PMD4
+	clrf    PMD5
 
 ;;; pin_init:
-	movlb   0x00
+	banksel 0
 	clrf    0x16
 	clrf    0x17
 	MOVLWF  0x18, 0x41 ; C6 high (RX on Click), C0 high (TX - USB)
@@ -66,11 +86,11 @@ main:
 	MOVLWF  0x45, 0x13	; RC3 to SSP1CLKPPS
 
 ;;; osc_init:
-	movlb   0x11
-	MOVLWF  0X0D, 0X62 ; osccon1
-	clrf    0x0f	; osccon3
-	clrf    0x11	; oscen
-	MOVLWF  0x13, 0x02 ; oscfrq
+	banksel OSCCON1
+	MOVLWF  OSCCON1, 0X62 ; osccon1
+	clrf    OSCCON3	; osccon3
+	clrf    OSCEN	; oscen
+	MOVLWF  OSCFRQ, 0x02 ; oscfrq
 	clrf    0x12	; osctune
 
 ;;; SSP1 specific init (see also pins)
@@ -79,35 +99,31 @@ main:
 	MOVLWF 0x10, 0x28		; SPEN, mode master I2C to SSP1CON1
 
 ;;; eusart_init:
-	movlb   0x0e
-	bcf     0x19, 0x5	; pie3 - rcie
-	bcf     0x19, 0x4	; pie3 - 0719
+	banksel PIE3
+	bcf     PIE3, 0x5	; pie3 - rcie
+	bcf     PIE3, 0x4	; pie3 - 0719
 
 ;;; USART
-	movlw   0x08
-	movlb   0x02
+	banksel BAUD1CON
+	MOVLWF  BAUD1CON, 0x08    ; baud1con
 ;;; BDOVF no_overflow; SCKP Non-Inverted;
 ;;; BRG16 16bit_generator; WUE disabled; ABDEN disabled
-	movwf   0x1f 	; baud1con
 
-	movlw   0x90
+	MOVLWF  0x1d, 0x90	; rcsta
 	;; SPEN enabled; RX9 8-bit; CREN enabled; ADDEN disabled; SREN
 	;;  disabled;
-	movwf   0x1d	; rcsta
 
-	movlw   0x24
+
+	MOVLWF  0x1e, 0x24	; txsta
 ;; TX9 8-bit; TX9D 0; SENDB sync_break_complete; TXEN enabled;
 ;; SYNC asynchronous; BRGH hi_speed; CSRC slave;
-	movwf   0x1e	; txsta
-	movlw   0x19
-	movwf   0x1b	; spbrgl
-	clrf    0x1c	; spbrgh
+	MOVLWF  SPBRGL, 0x19 ; spbrgl
+	clrf    SPBRGH	; spbrgh
+
 ;;; --------------------------------------------
 ;;; Stack init
-	movlw 0x20
-	movwf 0x04
+	MOVLWF 0x04, 0x20
 	clrf 0x05
-
 
 ;;;
 	movlw   low(receive_and_display)
@@ -118,8 +134,7 @@ main:
 main_loop
 	call    do_receive
 	addlw   -0x3a
-	btfss   3, 0 		; status/carry
-	goto    small_thing
+	IFNCARRY goto    small_thing
 	addlw   0x3a
 	movlb   0
 	movwf   0x16			; LATA - show bits
@@ -143,8 +158,7 @@ main_ok:
 
 small_thing:
 	addlw 0x0a
-	btfss 3,0
-	goto main_ok
+	IFNCARRY goto main_ok
 	call dispatcher
 	goto main_loop
 
@@ -162,8 +176,8 @@ dispatcher:
 	goto send_i2c_address			;9
 
 show_pir:
-	movlb 0x0e
-	movf  0x0f, W		; PIR3
+	banksel PIR3
+	movf  PIR3, W		; PIR3
 	movwf 0
 	call print_octet
 	movlb 3
@@ -171,32 +185,31 @@ show_pir:
 	movwf 0
 	call print_octet
 	movlb 3
-	movf  0x11, W 		; SSP1CON2
+	movf  SSP1CON2, W
 	movwf 0
 	call print_octet
 	movlb 3
-	movf  0xf, W 		; SSP1STAT
+	movf  SSP1STAT, W
 	movwf 0
 	call print_octet
 
 clear_pir3:
-	movlb 0x0e
-	bcf  0x0f,1
+	banksel PIR3
+	bcf  PIR3,1
 	return
 
 do_receive:
-	movlb 0x0e
-	btfss 0x0f, 0x5	; PIR3.RCIF
+	banksel PIR3
+	btfss PIR3, RCIF
 	goto do_receive
 	movlb 0x02
-	movf 0x19, W
+	movf RCREG, W
 	return
 
 put_string_b:
 ;;; Write string pointed from FSR1 till zero octet
 	moviw   1++
-	btfsc   0x03, 0x2
-	return
+	IFZERO return
 	call    write_char
 	goto    put_string_b
 
@@ -208,11 +221,11 @@ puts:
 
 write_char:
 ;;; write char at W. Keeps W unchanged.
-	movlb   0x0e
-	btfss   0x0f, 0x4	; PIR3.TXIF
+	banksel PIR3
+	btfss   PIR3, TXIF
 	goto    write_char
-	movlb   0x02
-	movwf   0x1a		; TX1REG
+	banksel TX1REG
+	movwf  TX1REG
 	return
 
 
@@ -236,17 +249,16 @@ print_nibble:
 	;; Convert nibble to ascii and put to the screen
 	andlw   0x0f
 	addlw   0xf6
-	btfsc   0x03, 0 ; STATUS, C
-	addlw   0x7
+	IFCARRY addlw   0x7
 	addlw   0x3a
 	goto write_char
 
 wait_clean_sspif:
 	;; wait for SSPIF. Make sure we leave at bank 3.
-	movlb 0x0e
-	btfss 0x0f, 0 		; ssp1IF
+	banksel PIR3
+	btfss PIR3, 0 		; ssp1IF
 	goto wait_clean_sspif
-	bcf 0x0f, 0
+	bcf PIR3, 0
 	return
 
 ;;; I2C
@@ -304,8 +316,7 @@ send_oled_cmds:
 	call send_i2c_address
 oled_more_cmds:
 	moviw 1
-	btfsc 3, 2		; zero?
-	goto send_i2c_stop
+	IFZERO goto send_i2c_stop
 	movlw 0x80		; no continuation, next is command
 	movwi 4++
 	call send_i2c_octet
