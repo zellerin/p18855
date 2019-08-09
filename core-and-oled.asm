@@ -49,7 +49,7 @@ PUSH_VALUE macro value
 	endm
 
 POP	macro
-	moviw --4
+	moviw --FSR0
 	endm
 
 OLED_I2C_ADDRESS:	equ 0x78
@@ -105,8 +105,8 @@ main:
 
 ;;; SSP1 specific init (see also pins)
 	movlb 0x03
-	MOVLWF 0x0d, 0x09	; SSP1ADD - 100khz at 4Hz clock
-	MOVLWF 0x10, 0x28		; SPEN, mode master I2C to SSP1CON1
+	MOVLWF SSP1ADD, 0x09	; 100khz at 4Hz clock
+	MOVLWF SSP1CON1, 0x28		; SPEN, mode master I2C to SSP1CON1
 
 ;;; eusart_init:
 	banksel PIE3
@@ -119,12 +119,12 @@ main:
 ;;; BDOVF no_overflow; SCKP Non-Inverted;
 ;;; BRG16 16bit_generator; WUE disabled; ABDEN disabled
 
-	MOVLWF  0x1d, 0x90	; rcsta
+	MOVLWF  RCSTA, 0x90	; rcsta
 	;; SPEN enabled; RX9 8-bit; CREN enabled; ADDEN disabled; SREN
 	;;  disabled;
 
 
-	MOVLWF  0x1e, 0x24	; txsta
+	MOVLWF  TXSTA, 0x24	; txsta
 ;; TX9 8-bit; TX9D 0; SENDB sync_break_complete; TXEN enabled;
 ;; SYNC asynchronous; BRGH hi_speed; CSRC slave;
 	MOVLWF  SPBRGL, 0x19 ; spbrgl
@@ -132,8 +132,8 @@ main:
 
 ;;; --------------------------------------------
 ;;; Stack init
-	MOVLWF 0x04, 0x20
-	clrf 0x05
+	MOVLWF FSR0L, 0x20
+	clrf FSR0H
 
 ;;;
 	call    put_string_in_code
@@ -145,7 +145,7 @@ main_loop
 	IFNCARRY goto    small_thing
 	addlw   0x3a
 	movlb   0
-	movwf   0x16			; LATA - show bits
+	movwf   LATA			; LATA - show bits
 	call    write_char
 	movwf   0
 	call    print_octet
@@ -264,7 +264,6 @@ ALLOC	macro
 	incf 0x04, F ; FSR0
 	endm
 
-
 print_octet:
 	swapf 0, W
 	call print_nibble
@@ -297,7 +296,7 @@ send_i2c_address:
 	call wait_clean_sspif
 send_i2c_octet:
 	movlb 0x03
-	moviw --4		; INDF
+	POP
 	movwf 0x0c		; SSP1BUF
 	call wait_clean_sspif
 	movlb 0x03
