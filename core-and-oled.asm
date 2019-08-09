@@ -359,11 +359,7 @@ oled_on:
 	goto send_oled_cmds
 
 oled_on_cmds:
-	retlw 0x8d
-	retlw 0x14
-        retlw 0xAF  ;  Set OLED Display On
-	retlw 0
-	return
+	data 0x8d, 0x14, 0xaf, 0x00 ; charge and on
 
 oled_put_picture2:
 	OLED_CMD 0xB0		; row 0
@@ -393,56 +389,15 @@ fill_in_aa:
 	goto fill_in_aa
 	return
 
-	OLED_CMD 0xAE
-	OLED_CMD 0xD5
-	OLED_CMD 0x80
-	OLED_CMD 0xa8
-	OLED_CMD 0x39
-	OLED_CMD 0xa1
-	OLED_CMD 0xc8
-        OLED_CMD 0x40  ; Set Display Start Line
-        OLED_CMD 0xD3  ; Set Display Offset
-        OLED_CMD 0xDA  ; Set COM Pins Hardware Configuration
-        OLED_CMD 0x81  ;  Set Contrast Control
-        OLED_CMD 0xD9  ;  Set Pre-Charge Period
-        OLED_CMD 0xDB  ;  Set VCOMH Deselect Level
-        OLED_CMD 0xA4  ;  Set Entire Display On/Off
-        OLED_CMD 0xA6  ;  Set Normal/Inverse Display
-        OLED_CMD 0xAF  ;  Set OLED Display On
-	return
-
 ;;; Data
 receive_and_display:
-	retlw   0x31
-	retlw   0x65
-	retlw   0x63
-	retlw   0x65
-	retlw   0x69
-	retlw   0x76
-	retlw   0x65
-	retlw   0x20
-	retlw   0x61
-	retlw   0x6e
-	retlw   0x64
-	retlw   0x20
-	retlw   0x44
-	retlw   0x69
-	retlw   0x73
-	retlw   0x70
-	retlw   0x6c
-	retlw   0x61
-	retlw   0x79
-	retlw   0x00
-
+	DT "Ready:", 0
 
 noack:
-	retlw 'N'
-	retlw 'O'
+	DT "NO"
 ack:
-	retlw 'A'
-	retlw 'C'
-	retlw 'K'
-	retlw 0x00
+	DT "ACK", 0
+
 
 	CONFIG RSTOSC=HFINT1, FEXTOSC=OFF, ZCD=ON, WDTE=OFF, LVP=OFF
 	end
