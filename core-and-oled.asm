@@ -53,6 +53,7 @@ POP	macro
 	endm
 
 OLED_I2C_ADDRESS:	equ 0x78
+
 main:
 ;;; clean_pmd:
 	banksel PMD0
@@ -101,7 +102,7 @@ main:
 	clrf    OSCCON3	; osccon3
 	clrf    OSCEN	; oscen
 	MOVLWF  OSCFRQ, 0x02 ; oscfrq
-	clrf    0x12	; osctune
+	clrf    OSCTUNE	; osctune
 
 ;;; SSP1 specific init (see also pins)
 	movlb 0x03
@@ -152,16 +153,8 @@ main_loop
 
 ;	call    oled_on
 main_ok:
-	movlw   0x0d
-	call    write_char
-	movlw   0x0a
-	call    write_char
-	movlw   0x4f
-	call    write_char
-	movlw   0x6b
-	call    write_char
-	movlw   0x3e
-	call    write_char
+	call put_string_in_code
+	dt 0x0d, 0x0a, "Ok>", 0
 	goto    main_loop
 
 small_thing:
@@ -281,7 +274,6 @@ print_nibble:
 	goto write_char
 
 wait_clean_sspif:
-	;; wait for SSPIF. Make sure we leave at bank 3.
 	banksel PIR3
 	btfss PIR3, 0 		; ssp1IF
 	goto wait_clean_sspif
