@@ -4,7 +4,7 @@
 ;;; Features:
 ;;; - usart using default board features
 ;;; - dispatch-driven using the usart impit
-;;; - I2C to OLED using standard CPU places (it means that labels SDA
+;;; - I2C to OLED (GM009605) using standard CPU places (it means that labels SDA
 ;;;   and SCL on the board are swapped - however, it enables to plug
 ;;;   my oled directly to the board)
 ;;; - interrupts not used; there is nothing to do waiting for
@@ -13,7 +13,11 @@
 ;;; Code conventions:
 ;;; - INDF0 is a scratch register
 ;;; - function pass octet arguments in W, INDF0, addresses in FSR1
+;;;
+;;; Problems & next actions
 ;;; - The fact that direct addresses are used is a misfeature to fix eventually
+;;; - Parameter passing unification:
+;;;   + send_i2c_octet uses FSR1[-1] as input
 ;;;
         list p=16F18855
 	org 0
