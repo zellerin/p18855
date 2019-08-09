@@ -18,6 +18,11 @@
         list p=16F18855
 	org 0
 
+MOVLWF  macro field, value
+	movlw value
+	movwf (field) & 0x7f
+	endm
+
 main:
 ;;; clean_pmd:
 	movlb   0x0f
@@ -32,68 +37,52 @@ main:
 	movlb   0x00
 	clrf    0x16
 	clrf    0x17
-	movlw   0x41
-	movwf   0x18	; C6 high (RX on Click), C0 high (TX - USB)
-	movlw   0xf0	; A0 to A3 output (LED), A4-A7 in (POT, SW1, Alarms)
-	movwf   0x11
-	movlw   0xff
-	movwf   0x12
-	movlw   0xfe
-	movwf   0x13	; C0 (TX-USB) input, i2c pins input
+	MOVLWF  0x18, 0x41 ; C6 high (RX on Click), C0 high (TX - USB)
+	MOVLWF  0x11, 0xf0	; A0 to A3 output (LED), A4-A7 in (POT, SW1, Alarms)
+	MOVLWF  0X12, 0XFF
+	MOVLWF  0x13, 0xfe	; C0 (TX-USB) input, i2c pins input
+
 	movlb   0x1e  ; ----------- BANK 30, 0xf.. -----------------
-	movlw   0xe5
-	movwf   0x4e	; anselc - digital input for RX-USB, RC3, RC4
-	movlw   0xff
-	movwf   0x43	; anselb - no digital input
+	MOVLWF  0x4e, 0xe5 ; anselc - digital input for RX-USB, RC3, RC4
+	MOVLWF  0x43, 0xff  ; anselb - no digital input
 	movwf   0x38	; ansela - no digital input
 	movwf   0x44	; wpub
 	movwf   0x39	; wpua
 	movwf   0x4f	; wpuc
-	movlw   0x08
-	movwf   0x65	; wpue
+	MOVLWF  0x65, 0x08
 	clrf    0x3a	; odcona
 	clrf    0x45	; odconb
 	clrf    0x50	; odconc
 	movwf   0x3b	; slrcona
 	movwf   0x46	; slrconb
 	movwf   0x51	; slrconc
-	movlw   0x10	; RC0
-	movwf   0x20	; rc0pps
-	movlw   0x15	; SDA1
-	movwf   0x24	; rc4pps
-	movlw   0x14	; SCL1
-	movwf   0x23	; rc3pps
+	MOVLWF  0x20, 0x10	; TX/CK to RC0PPS
+	MOVLWF  0X24, 0X15	; SDA1 TO RC4PPS
+	MOVLWF  0x23, 0x14	; SCL1 to RC3PPS
 
 	movlb   0x1d	; ------------ BANK 29, 0xE8. ----------------
-	movlw   0x11	; RC1
-	movwf   0x4b	; RXPPS, def RC7
-	movlw   0x14
-	movwf   0x46	; SSP1DATPPS
-	movlw   0x13
-	movwf   0x45	; SSP1CLKPPS
+	MOVLWF  0x4b, 0x11	; RC1 to RXPPS
+	MOVLWF  0x46, 0x14	; RC4 to SSP1DATPPS
+	MOVLWF  0x45, 0x13	; RC3 to SSP1CLKPPS
 
 ;;; osc_init:
 	movlb   0x11
-	movlw   0x62
-	movwf   0x0d 	; osccon1
+	MOVLWF  0X0D, 0X62 ; osccon1
 	clrf    0x0f	; osccon3
 	clrf    0x11	; oscen
-	movlw   0x02
-	movwf   0x13	; oscfrq
+	MOVLWF  0x13, 0x02 ; oscfrq
 	clrf    0x12	; osctune
 
 ;;; SSP1 specific init (see also pins)
 	movlb 0x03
-	movlw 0x09		; 100khz at 4Hz clock
-	movwf  0x0D		; SSP1ADD
-	movlw 0x28		; SPEN, mode master I2C
-	movwf 0x10		; SSP1CON1
+	MOVLWF 0x0d, 0x09	; SSP1ADD - 100khz at 4Hz clock
+	MOVLWF 0x10, 0x28		; SPEN, mode master I2C to SSP1CON1
 
 ;;; eusart_init:
 	movlb   0x0e
 	bcf     0x19, 0x5	; pie3 - rcie
-	movlb   0x0e
 	bcf     0x19, 0x4	; pie3 - 0719
+
 ;;; USART
 	movlw   0x08
 	movlb   0x02
