@@ -65,25 +65,25 @@ main:
 	movlb   0x1e  ; ----------- BANK 30, 0xf.. -----------------
 	MOVLWF  0x4e, 0xe5 ; anselc - digital input for RX-USB, RC3, RC4
 	MOVLWF  0x43, 0xff  ; anselb - no digital input
-	movwf   0x38	; ansela - no digital input
-	movwf   0x44	; wpub
-	movwf   0x39	; wpua
-	movwf   0x4f	; wpuc
+	movwf   ANSELA ; no digital input
+	movwf   WPUB
+	MOVWF   WPUA
+	MOVWF   WPUC
 	MOVLWF  0x65, 0x08
-	clrf    0x3a	; odcona
-	clrf    0x45	; odconb
-	clrf    0x50	; odconc
-	movwf   0x3b	; slrcona
-	movwf   0x46	; slrconb
-	movwf   0x51	; slrconc
-	MOVLWF  0x20, 0x10	; TX/CK to RC0PPS
-	MOVLWF  0X24, 0X15	; SDA1 TO RC4PPS
-	MOVLWF  0x23, 0x14	; SCL1 to RC3PPS
+	clrf    ODCONA
+	clrf    ODCONB
+	clrf    ODCONC
+	movwf   SLRCONA
+	movwf   SLRCONB
+	movwf   SLRCONC
+	MOVLWF  RC0PPS, 0x10	; TX/CK
+	MOVLWF  RC4PPS, 0X15	; SDA1
+	MOVLWF  RC3PPS, 0x14	; SCL1
 
-	movlb   0x1d	; ------------ BANK 29, 0xE8. ----------------
-	MOVLWF  0x4b, 0x11	; RC1 to RXPPS
-	MOVLWF  0x46, 0x14	; RC4 to SSP1DATPPS
-	MOVLWF  0x45, 0x13	; RC3 to SSP1CLKPPS
+	movlb   0x1d
+	MOVLWF  RXPPS, 0x11	; RC1
+	MOVLWF  SSP1DATPPS, 0x14	; RC4
+	MOVLWF  SSP1CLKPPS, 0x13	; RC3
 
 ;;; osc_init:
 	banksel OSCCON1
