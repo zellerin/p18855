@@ -1,3 +1,21 @@
+;;; -*- mode: pic-asm; -*-
+;;;
+;;; Playing with Microchip Express Board using i2c.
+;;; Features:
+;;; - usart using default board features
+;;; - dispatch-driven using the usart impit
+;;; - I2C to OLED using standard CPU places (it means that labels SDA
+;;;   and SCL on the board are swapped - however, it enables to plug
+;;;   my oled directly to the board)
+;;; - interrupts not used; there is nothing to do waiting for
+;;;   peripherals, and make code simple.
+;;;
+;;; Code conventions:
+;;; - INDF0 is a scratch register
+;;; - function pass arguments in frs0[-1] and so on
+;;; - The fact that direct addresses are used is a misfeature to fix eventually
+;;;
+        list p=16F18855
 	org 0
 
 main:
