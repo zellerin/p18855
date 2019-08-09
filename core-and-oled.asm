@@ -216,25 +216,32 @@ do_receive:
 
 put_string_b:
 ;;; Write string pointed from FSR1 till zero octet
-	moviw   1++
+	moviw  1++
 	IFZERO return
 	call    write_char
 	goto    put_string_b
 
-put_string_in_code:
-;;; Write string pointed from FSR1 till zero octet and newline
-;;; get FSR1 from TOS
+tos_to_fsr1:
 	banksel TOSH
+	decf STKPTR, F 		; on top is call to us...
 	movf TOSH, W
 	addlw 0x80
 	movwf FSR1H
 	movf TOSL, W
 	movwf FSR1L
+	incf STKPTR, F
+	return
+
+put_string_in_code:
+;;; Write string pointed from FSR1 till zero octet and newline
+;;; get FSR1 from TOS
+	call tos_to_fsr1
 	call    put_string_b
 	movlw   0x0a
 	call write_char
 	movlw   0x0d
 	call write_char
+fsr1_to_tos:
 	banksel TOSL
 	;; high bit set seems not to be a problem
 	movf FSR1H, W
@@ -292,29 +299,16 @@ send_i2c_octet:
 	movlb 0x03
 	moviw --4		; INDF
 	movwf 0x0c		; SSP1BUF
-	call print_octet
 	call wait_clean_sspif
 	movlb 0x03
 	btfss 0x11, 6 		; ACKSTAT
-	goto got_ack
+	return
 	goto got_noack
 
-got_ack:
-	return
-	;; if needed debug:
-	movlw   low(ack)
-	movwf   0x06
-	movlw   high(ack)
-	movwf   0x07
-	goto    put_string_b
-
 got_noack:
+	call put_string_in_code
+	dt "noack", 0
 	return
-	movlw   low(noack)
-	movwf   0x06
-	movlw   high(noack)
-	movwf   0x07
-	goto    put_string_b
 
 send_i2c_stop:
 	movlb 0x03
@@ -332,6 +326,7 @@ send_oled_cmd_or_data:
 
 send_oled_cmds:
 	;; send commands from IFR1 till zero byte
+	call tos_to_fsr1
 	PUSH_VALUE 0x78
 	call send_i2c_address
 oled_more_cmds:
@@ -343,6 +338,10 @@ oled_more_cmds:
 	movwi 0++
 	call send_i2c_octet
 	goto oled_more_cmds
+
+oled_after_cmds:
+	call send_i2c_stop
+	goto fsr1_to_tos
 
 send_oled_data:
 	PUSH_VALUE 0xc0		; no continuation, next is command
@@ -364,14 +363,9 @@ oled_off:
 	return
 
 oled_on:
-	movlw high(oled_on_cmds)
-	movwf 7
-	movlw low(oled_on_cmds)
-	movwf 6
-	goto send_oled_cmds
-
-oled_on_cmds:
+	call send_oled_cmds
 	data 0x8d, 0x14, 0xaf, 0x00 ; charge and on
+	return
 
 oled_put_picture2:
 	OLED_CMD 0xB0		; row 0
@@ -400,14 +394,6 @@ fill_in_aa:
 	decfsz 0, F
 	goto fill_in_aa
 	return
-
-;;; Data
-
-noack:
-	DT "NO"
-ack:
-	DT "ACK", 0
-
 
 	CONFIG RSTOSC=HFINT1, FEXTOSC=OFF, ZCD=ON, WDTE=OFF, LVP=OFF
 	end
