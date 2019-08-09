@@ -136,11 +136,9 @@ main:
 	clrf 0x05
 
 ;;;
-	movlw   low(receive_and_display)
-	movwf   0x06
-	movlw   high(receive_and_display)
-	movwf   0x07
-	call    puts
+	call    put_string_in_code
+	DT "Ready:", 0
+
 main_loop
 	call    do_receive
 	addlw   -0x3a
@@ -223,11 +221,27 @@ put_string_b:
 	call    write_char
 	goto    put_string_b
 
-puts:
+put_string_in_code:
 ;;; Write string pointed from FSR1 till zero octet and newline
+;;; get FSR1 from TOS
+	banksel TOSH
+	movf TOSH, W
+	addlw 0x80
+	movwf FSR1H
+	movf TOSL, W
+	movwf FSR1L
 	call    put_string_b
 	movlw   0x0a
-	;; fall through
+	call write_char
+	movlw   0x0d
+	call write_char
+	banksel TOSL
+	;; high bit set seems not to be a problem
+	movf FSR1H, W
+	movwf TOSH
+	movf FSR1L, W
+	movwf TOSL
+	return
 
 write_char:
 ;;; write char at W. Keeps W unchanged.
@@ -292,14 +306,15 @@ got_ack:
 	movwf   0x06
 	movlw   high(ack)
 	movwf   0x07
-	goto    puts
+	goto    put_string_b
 
 got_noack:
+	return
 	movlw   low(noack)
 	movwf   0x06
 	movlw   high(noack)
 	movwf   0x07
-	goto    puts
+	goto    put_string_b
 
 send_i2c_stop:
 	movlb 0x03
@@ -387,8 +402,6 @@ fill_in_aa:
 	return
 
 ;;; Data
-receive_and_display:
-	DT "Ready:", 0
 
 noack:
 	DT "NO"
