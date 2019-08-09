@@ -43,6 +43,16 @@ MOVLBS	macro bank
 	BANKSEL bank*128
 	endm
 
+PUSH_VALUE macro value
+	movlw value
+	movwi FSR0++
+	endm
+
+POP	macro
+	moviw --4
+	endm
+
+OLED_I2C_ADDRESS:	equ 0x78
 main:
 ;;; clean_pmd:
 	banksel PMD0
@@ -233,9 +243,6 @@ ALLOC	macro
 	incf 0x04, F ; FSR0
 	endm
 
-POP	macro
-	moviw --4
-	endm
 
 print_octet:
 	swapf 0, W
@@ -300,25 +307,22 @@ send_i2c_stop:
 	goto wait_clean_sspif
 
 send_oled_cmd:
-	movlw 0x78
-	movwi 4++
+	PUSH_VALUE 0x80		; no continuation, next is command
+send_oled_cmd_or_data:
+	PUSH_VALUE OLED_I2C_ADDRESS
 	call send_i2c_address
-	movlw 0x80		; no continuation, next is command
-	movwi 4++
 	call send_i2c_octet
 	call send_i2c_octet
 	goto send_i2c_stop
 
 send_oled_cmds:
-	;; send commands fro IFR1 till zero byte
-	movlw 0x78
-	movwi 4++
+	;; send commands from IFR1 till zero byte
+	PUSH_VALUE 0x78
 	call send_i2c_address
 oled_more_cmds:
 	moviw 1
 	IFZERO goto send_i2c_stop
-	movlw 0x80		; no continuation, next is command
-	movwi 4++
+	PUSH_VALUE 0x80		; no continuation, next is command
 	call send_i2c_octet
 	moviw 1++
 	movwi 0++
@@ -326,18 +330,11 @@ oled_more_cmds:
 	goto oled_more_cmds
 
 send_oled_data:
-	movlw 0x78
-	movwi 4++
-	call send_i2c_address
-	movlw 0xc0		; no continuation, next is command
-	movwi 4++
-	call send_i2c_octet
-	call send_i2c_octet
-	goto send_i2c_stop
+	PUSH_VALUE 0xc0		; no continuation, next is command
+	goto send_oled_cmd_or_data
 
 OLED_CMD macro value
-	movlw value
-	movwi 4++
+	PUSH_VALUE value
 	call send_oled_cmd
 	endm
 
