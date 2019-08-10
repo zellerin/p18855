@@ -17,7 +17,6 @@
 ;;; Problems & next actions
 ;;; - The fact that direct addresses are used is a misfeature to fix eventually
 ;;; - Parameter passing unification:
-;;;   + send_i2c_octet uses FSR1[-1] as input
 ;;;
         list p=16F18855
 	org 0
@@ -30,22 +29,18 @@ MOVLWF  macro field, value
 	endm
 
 IFZERO  macro cmd
-	btfsc   0x03, 2
+	btfsc   STATUS, Z
 	cmd
 	endm
 
 IFCARRY macro cmd
-	btfsc 0x03, 0
+	btfsc STATUS, C
 	cmd
 	endm
 
 IFNCARRY macro cmd
-	btfss 0x03, 0
+	btfss STATUS, C
 	cmd
-	endm
-
-MOVLBS	macro bank
-	BANKSEL bank*128
 	endm
 
 PUSH_VALUE macro value
@@ -53,8 +48,9 @@ PUSH_VALUE macro value
 	movwi FSR0++
 	endm
 
-POP	macro
-	moviw --FSR0
+OLED_CMD macro value
+	movlw value
+	call send_oled_cmd
 	endm
 
 OLED_I2C_ADDRESS:	equ 0x78
@@ -151,15 +147,14 @@ main_loop
 	IFNCARRY goto    small_thing
 	addlw   0x3a
 	movlb   0
-	movwf   LATA			; LATA - show bits
+	movwf   LATA
 	call    write_char
 	movwf   0
 	call    print_octet
 
-;	call    oled_on
 main_ok:
 	call put_string_in_code
-	dt 0x0d, 0x0a, "Ok>", 0
+	dt "Ok ", 0x0d, 0x0a, "> ", 0x0
 	goto    main_loop
 
 small_thing:
@@ -174,35 +169,12 @@ dispatcher:
 	goto oled_on				;1
 	goto oled_put_picture1			;2
 	goto oled_put_picture2 			;3
-	goto send_i2c_address			;4
-	goto send_i2c_address			;5
-	goto send_i2c_address			;6
-	goto send_i2c_address			;7
-	goto send_i2c_address			;8
-	goto send_i2c_address			;9
-
-show_pir:
-	banksel PIR3
-	movf  PIR3, W		; PIR3
-	movwf 0
-	call print_octet
-	movlb 3
-	movf  0x10, W 		; SSP1CON1
-	movwf 0
-	call print_octet
-	movlb 3
-	movf  SSP1CON2, W
-	movwf 0
-	call print_octet
-	movlb 3
-	movf  SSP1STAT, W
-	movwf 0
-	call print_octet
-
-clear_pir3:
-	banksel PIR3
-	bcf  PIR3,1
-	return
+	goto fill_r0_low			;4
+	goto main_loop			;5
+	goto main_loop			;6
+	goto main_loop			;7
+	goto main_loop			;8
+	goto main_loop			;9
 
 do_receive:
 	banksel PIR3
@@ -278,6 +250,8 @@ print_nibble:
 	addlw   0x3a
 	goto write_char
 
+;;; I2C
+
 wait_clean_sspif:
 	banksel PIR3
 	btfss PIR3, 0 		; ssp1IF
@@ -285,15 +259,14 @@ wait_clean_sspif:
 	bcf PIR3, 0
 	return
 
-;;; I2C
 send_i2c_address:
-	;; address in INDF0
 	movlb 0x03
 	bsf   0x11, 0		; SEN
 	call wait_clean_sspif
+	movlw OLED_I2C_ADDRESS
+
 send_i2c_octet:
 	movlb 0x03
-	POP
 	movwf SSP1BUF		; SSP1BUF
 	call wait_clean_sspif
 
@@ -313,18 +286,17 @@ send_i2c_stop:
 	goto wait_clean_sspif
 
 send_oled_cmd:
-	PUSH_VALUE 0x80		; no continuation, next is command
-send_oled_cmd_or_data:
-	PUSH_VALUE OLED_I2C_ADDRESS
+	movwi FSR0++
 	call send_i2c_address
+	movlw 0x80		; no continuation, next is command
 	call send_i2c_octet
+	moviw --FSR0
 	call send_i2c_octet
 	goto send_i2c_stop
 
 send_oled_cmds:
 	;; send commands from IFR1 till zero byte
 	call tos_to_fsr1
-	PUSH_VALUE OLED_I2C_ADDRESS
 	call send_i2c_address
 	call oled_more_cmds
 	goto fsr1_to_tos
@@ -332,42 +304,44 @@ send_oled_cmds:
 oled_more_cmds:
 	moviw 1
 	IFZERO goto send_i2c_stop
-	PUSH_VALUE 0x80		; no continuation, next is command
+	movlw 0x80		; no continuation, next is command
 	call send_i2c_octet
 	moviw 1++
-	movwi 0++
 	call send_i2c_octet
 	goto oled_more_cmds
+
+fill_r0_low:
+	movlw 0
+	call oled_set_row
+	movlw 0x04
+	movwf INDF0
+	movlw 80
+send_oled_data_fill:
+	;; send W copies of indf
+	movwi ++FSR0
+	call send_i2c_address
+	movlw 0x40		; continuation, next is data
+	call send_i2c_octet
+oled_fill_more_data:
+	moviw -1[0]
+	call send_i2c_octet
+	decfsz INDF0
+	goto oled_fill_more_data
+	movwi FSR0--
+	goto send_i2c_stop
 
 send_oled_data_fsr1:
 	;; send W commands from IFR1
 	movwf 0x7f
-	PUSH_VALUE 0x78
 	call send_i2c_address
-	PUSH_VALUE 0x40		; continuation, next is data
+	movlw 0x40		; continuation, next is data
 	call send_i2c_octet
 oled_more_data:
 	moviw 1++
-	movwi 0++
 	call send_i2c_octet
 	decfsz 0x7f
 	goto oled_more_data
 	goto send_i2c_stop
-
-send_oled_data:
-	PUSH_VALUE 0xc0		; no continuation, next is command
-	goto send_oled_cmd_or_data
-
-OLED_CMD macro value
-	PUSH_VALUE value
-	call send_oled_cmd
-	endm
-
-OLED_DATA macro value
-	movlw value
-	movwi 4++
-	call send_oled_data
-	endm
 
 oled_off:
         OLED_CMD 0xAE  ;  Set OLED Display Off
@@ -375,22 +349,28 @@ oled_off:
 
 oled_on:
 	call send_oled_cmds
-	data 0x8d, 0x14, 0xaf, 0x00 ; charge and on
+	;; see Figure 2 of SSD1306 docs
+	;dt 0xa8, 0x3f, 0xd3, 0x00, 0x40, 0xa0, 0xc0
+	dt 0x81, 0x7f, 0xa4, 0xa6, 0xd, 0x80, 0x8d, 0x14, 0xaf, 0x00
 	return
 
-oled_put_picture2:
-	OLED_CMD 0xB0		; row 0
+oled_set_row:
+	andlw 0x07
+	addlw 0xb0
+	call send_oled_cmd
 	OLED_CMD 0x10		; col 0
 	OLED_CMD 0x00		; col 0
-	movlw 39
-	movwf 0
-fill_in_55:
-	incf 4
-	OLED_DATA 0x55
-	decf 4
-	decfsz 0, F
-	goto fill_in_55
 	return
+
+
+oled_put_picture2:
+	OLED_CMD 0xB2		; row 0
+	OLED_CMD 0x10		; col 0
+	OLED_CMD 0x00		; col 0
+	MOVLWF FSR1H, high(font)
+	MOVLWF FSR1L, low(font)
+	movlw 64
+	goto send_oled_data_fsr1
 
 oled_put_picture1:
 	OLED_CMD 0xB0		; row 0
