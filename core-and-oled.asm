@@ -28,11 +28,6 @@ MOVLWF  macro field, value
 	movwf field
 	endm
 
-IFZERO  macro cmd
-	btfsc   STATUS, Z
-	cmd
-	endm
-
 IFCARRY macro cmd
 	btfsc STATUS, C
 	cmd
@@ -43,17 +38,21 @@ IFNCARRY macro cmd
 	cmd
 	endm
 
-PUSH_VALUE macro value
-	movlw value
-	movwi FSR0++
-	endm
-
 OLED_CMD macro value
 	movlw value
 	call send_oled_cmd
 	endm
 
 OLED_I2C_ADDRESS:	equ 0x78
+
+UART_PRINT macro text
+	local bot
+	local eot
+	movlw eot-bot
+	call put_string_in_code
+bot:	dt text
+eot:
+	endm
 
 main:
 ;;; clean_pmd:
@@ -138,10 +137,13 @@ main:
 	clrf FSR0H
 
 ;;;
-	call    put_string_in_code
-	DT "Ready:", 0
+	UART_PRINT "\r\nv1\r\n"
 
-main_loop
+main_loop:
+	;; Show prompt, read char.
+	;; if char is number,
+	movlw '>'
+	call write_char
 	call    do_receive
 	addlw   -0x3a
 	IFNCARRY goto    small_thing
@@ -149,13 +151,12 @@ main_loop
 	movlb   0
 	movwf   LATA
 	call    write_char
-	movwf   0
+	movwf   INDF0
 	call    print_octet
 
 main_ok:
-	call put_string_in_code
-	dt "Ok ", 0x0d, 0x0a, "> ", 0x0
-	goto    main_loop
+	UART_PRINT "Ok\r\n>"
+	goto main_loop
 
 small_thing:
 	addlw 0x0a
@@ -184,14 +185,7 @@ do_receive:
 	movf RCREG, W
 	return
 
-put_string_b:
-;;; Write string pointed from FSR1 till zero octet
-	moviw  1++
-	IFZERO return
-	call    write_char
-	goto    put_string_b
-
-tos_to_fsr1:
+tos_to_fsr1:			; any -- unspecified
 	banksel TOSH
 	decf STKPTR, F 		; on top is call to us...
 	movf TOSH, W
@@ -202,16 +196,21 @@ tos_to_fsr1:
 	incf STKPTR, F
 	return
 
-put_string_in_code:
+put_string_in_code:		; any length -- 0 unspecified
 ;;; Write string pointed from FSR1 till zero octet and newline
 ;;; get FSR1 from TOS
+	movwi INDF0
 	call tos_to_fsr1
-	call    put_string_b
-	movlw   0x0a
+put_string_b:
+	moviw FSR1++
 	call write_char
-	movlw   0x0d
+	decfsz INDF0, F
+	goto put_string_b
+	movlw 0x0a
 	call write_char
-fsr1_to_tos:
+	movlw 0x0d
+	call write_char
+fsr1_to_tos:			; any -- unspecified
 	banksel TOSL
 	;; high bit set seems not to be a problem
 	movf FSR1H, W
@@ -220,7 +219,7 @@ fsr1_to_tos:
 	movwf TOSL
 	return
 
-write_char:
+write_char:		       ; char -- char
 ;;; write char at W. Keeps W unchanged.
 	banksel PIR3
 	btfss   PIR3, TXIF
@@ -229,20 +228,15 @@ write_char:
 	movwf  TX1REG
 	return
 
-
-ALLOC	macro
-	incf 0x04, F ; FSR0
-	endm
-
-print_octet:
-	swapf 0, W
+print_octet:			; octet any -- octet 0x20
+	swapf INDF0, W
 	call print_nibble
-	movf 0, W
+	movf INDF0, W
 	call print_nibble
 	movlw 0x20
 	goto write_char
 
-print_nibble:
+print_nibble:	      ; nibble -- char
 	;; Convert nibble to ascii and put to the screen
 	andlw   0x0f
 	addlw   0xf6
@@ -252,20 +246,20 @@ print_nibble:
 
 ;;; I2C
 
-wait_clean_sspif:
+wait_clean_sspif: 		; no pars
 	banksel PIR3
 	btfss PIR3, 0 		; ssp1IF
 	goto wait_clean_sspif
 	bcf PIR3, 0
 	return
 
-send_i2c_address:
+send_i2c_address:		;
 	movlb 0x03
 	bsf   0x11, 0		; SEN
 	call wait_clean_sspif
 	movlw OLED_I2C_ADDRESS
 
-send_i2c_octet:
+send_i2c_octet:			; octet -- octet
 	movlb 0x03
 	movwf SSP1BUF		; SSP1BUF
 	call wait_clean_sspif
@@ -273,11 +267,9 @@ send_i2c_octet:
 	movlb 0x03
 	btfss 0x11, 6 		; ACKSTAT
 	return
-	goto got_noack 		; flag: delete
 
 got_noack:
-	call put_string_in_code
-	dt "noack", 0
+	UART_PRINT "noack"
 	return
 
 send_i2c_stop:
@@ -285,7 +277,7 @@ send_i2c_stop:
 	bsf   0x11 ,2 		; PEN
 	goto wait_clean_sspif
 
-send_oled_cmd:
+send_oled_cmd:			; len -- ???
 	movwi FSR0++
 	call send_i2c_address
 	movlw 0x80		; no continuation, next is command
