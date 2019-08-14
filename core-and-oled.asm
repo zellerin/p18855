@@ -7,7 +7,7 @@
 ;;; - I2C to OLED (GM009605) using standard CPU places (it means that labels SDA
 ;;;   and SCL on the board are swapped - however, it enables to plug
 ;;;   my oled directly to the board)
-;;; - interrupts not used; there is nothing to do waiting for
+;;; - interrupts not used; there is nothing to do waiting for the
 ;;;   peripherals, and make code simple.
 ;;;
 ;;; Code conventions:
@@ -18,6 +18,12 @@
 ;;; - The fact that direct addresses are used is a misfeature to fix eventually
 ;;; - Parameter passing unification:
 ;;;
+;;; Function name prefixes:
+;;; - t_ :: tiny, does not change W nor INDF0
+;;; - d_ :: dirty, modifies INDF
+;;; - without prefix :: either not callable (part of init, part of
+;;;                     main loop) or destroys W, preserves W
+
         list p=16F18855
 	org 0
 	include p16f18855.inc
@@ -41,6 +47,15 @@ IFNCARRY macro cmd
 OLED_CMD macro value
 	movlw value
 	call send_oled_cmd
+	endm
+
+OLED_CMDS macro text
+	local bot
+	local eot
+	movlw eot-bot
+	call d_send_oled_cmds
+bot:	dt text
+eot:
 	endm
 
 OLED_I2C_ADDRESS:	equ 0x78
@@ -98,38 +113,37 @@ main:
 
 ;;; osc_init:
 	banksel OSCCON1
-	MOVLWF  OSCCON1, 0X62 ; osccon1
-	clrf    OSCCON3	; osccon3
-	clrf    OSCEN	; oscen
-	MOVLWF  OSCFRQ, 0x02 ; oscfrq
-	clrf    OSCTUNE	; osctune
+	MOVLWF  OSCCON1, 0X62
+	clrf    OSCCON3
+	clrf    OSCEN
+	MOVLWF  OSCFRQ, 0x02
+	clrf    OSCTUNE
 
 ;;; SSP1 specific init (see also pins)
 	movlb 0x03
 	MOVLWF SSP1ADD, 0x09	; 100khz at 4Hz clock
-	MOVLWF SSP1CON1, 0x28		; SPEN, mode master I2C to SSP1CON1
+	MOVLWF SSP1CON1, 0x28	; SPEN, mode master I2C to SSP1CON1
 
 ;;; eusart_init:
 	banksel PIE3
-	bcf     PIE3, 0x5	; pie3 - rcie
-	bcf     PIE3, 0x4	; pie3 - 0719
+	bcf     PIE3, 0x5
+	bcf     PIE3, 0x4
 
 ;;; USART
 	banksel BAUD1CON
-	MOVLWF  BAUD1CON, 0x08    ; baud1con
+	MOVLWF  BAUD1CON, 0x08
 ;;; BDOVF no_overflow; SCKP Non-Inverted;
 ;;; BRG16 16bit_generator; WUE disabled; ABDEN disabled
 
-	MOVLWF  RCSTA, 0x90	; rcsta
+	MOVLWF  RCSTA, 0x90
 	;; SPEN enabled; RX9 8-bit; CREN enabled; ADDEN disabled; SREN
 	;;  disabled;
 
-
-	MOVLWF  TXSTA, 0x24	; txsta
+	MOVLWF  TXSTA, 0x24
 ;; TX9 8-bit; TX9D 0; SENDB sync_break_complete; TXEN enabled;
 ;; SYNC asynchronous; BRGH hi_speed; CSRC slave;
-	MOVLWF  SPBRGL, 0x19 ; spbrgl
-	clrf    SPBRGH	; spbrgh
+	MOVLWF  SPBRGL, 0x19 ; 9600 Bd@4Mhz
+	clrf    SPBRGH
 
 ;;; --------------------------------------------
 ;;; Stack init
@@ -246,23 +260,23 @@ print_nibble:	      ; nibble -- char
 
 ;;; I2C
 
-wait_clean_sspif: 		; no pars
+t_wait_clean_sspif: 		; no pars
 	banksel PIR3
 	btfss PIR3, 0 		; ssp1IF
-	goto wait_clean_sspif
+	goto t_wait_clean_sspif
 	bcf PIR3, 0
 	return
 
 send_i2c_address:		;
 	movlb 0x03
 	bsf   0x11, 0		; SEN
-	call wait_clean_sspif
+	call t_wait_clean_sspif
 	movlw OLED_I2C_ADDRESS
 
 send_i2c_octet:			; octet -- octet
 	movlb 0x03
 	movwf SSP1BUF		; SSP1BUF
-	call wait_clean_sspif
+	call t_wait_clean_sspif
 
 	movlb 0x03
 	btfss 0x11, 6 		; ACKSTAT
@@ -275,7 +289,7 @@ got_noack:
 send_i2c_stop:
 	movlb 0x03
 	bsf   0x11 ,2 		; PEN
-	goto wait_clean_sspif
+	goto t_wait_clean_sspif
 
 send_oled_cmd:			; len -- ???
 	movwi FSR0++
@@ -286,7 +300,7 @@ send_oled_cmd:			; len -- ???
 	call send_i2c_octet
 	goto send_i2c_stop
 
-send_oled_cmds:
+d_send_oled_cmds:
 	;; send commands from IFR1 till zero byte
 	movwf INDF0
 	call tos_to_fsr1
@@ -342,12 +356,8 @@ oled_off:
 	return
 
 oled_on:
-	movlw (oled_set_row - tbl_a-1)
-	call send_oled_cmds
 	;; see Figure 2 of SSD1306 docs
-tbl_a:
-	dt 0xa8, 0x3f, 0xd3, 0x00, 0x40, 0xa0, 0xc0
-	dt 0x81, 0x7f, 0xa4, 0xa6, 0xd, 0x80, 0x8d, 0x14, 0xaf, 0x00
+	OLED_CMDS "\xA8\x3f\xd3\x00\x40\xa0\xc0\x81\x7f\xa4\xa6\x0d\x80\x8d\x14\xaf"
 	return
 
 oled_set_row:
