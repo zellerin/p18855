@@ -48,20 +48,6 @@ IFNCARRY macro cmd
 	cmd
 	endm
 
-OLED_CMD macro value
-	movlw value
-	call t_send_oled_cmd
-	endm
-
-OLED_CMDS macro text
-	local bot
-	local eot
-	movlw eot-bot
-	call d_send_oled_cmds
-bot:	dt text
-eot:
-	endm
-
 UART_PRINT macro text
 	local bot
 	local eot
@@ -314,6 +300,11 @@ d_send_oled_cmds:
 	call oled_more_cmds
 	goto fsr1_to_tos
 
+OLED_CMD macro value
+	movlw value
+	call t_send_oled_cmd
+	endm
+
 oled_more_cmds:
 	movlw 0x80		; no continuation, next is command
 	call t_send_i2c_octet
@@ -322,6 +313,16 @@ oled_more_cmds:
 	decfsz INDF0
 	goto oled_more_cmds
 	goto t_send_i2c_stop
+
+OLED_CMDS macro text
+	local bot
+	local eot
+	movlw eot-bot
+	call d_send_oled_cmds
+bot:	dt text
+eot:
+	endm
+
 
 
 fill_r0_low:
