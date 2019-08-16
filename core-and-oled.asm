@@ -368,7 +368,6 @@ oled_set_row:
 	OLED_CMD 0x00		; col 0
 	return
 
-
 oled_put_picture2:
 	OLED_CMD 0xB2		; row 0
 	OLED_CMD 0x10		; col 0
