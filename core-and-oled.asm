@@ -25,10 +25,14 @@
 ;;;                     main loop) or destroys W, preserves W
 
         list p=16F18855
-	org 0
 	include p16f18855.inc
         CONFIG RSTOSC=HFINT1, FEXTOSC=OFF, ZCD=ON, WDTE=OFF, LVP=OFF
 
+;;; Constants
+OLED_I2C_ADDRESS:	equ 0x78
+
+
+;;; --------------------- Utility macros ---------------------
 MOVLWF  macro field, value
 	movlw value
 	movwf field
@@ -46,7 +50,7 @@ IFNCARRY macro cmd
 
 OLED_CMD macro value
 	movlw value
-	call send_oled_cmd
+	call t_send_oled_cmd
 	endm
 
 OLED_CMDS macro text
@@ -58,8 +62,6 @@ bot:	dt text
 eot:
 	endm
 
-OLED_I2C_ADDRESS:	equ 0x78
-
 UART_PRINT macro text
 	local bot
 	local eot
@@ -69,7 +71,8 @@ bot:	dt text
 eot:
 	endm
 
-main:
+	org 0
+;;; ------- Initialization --------------
 ;;; clean_pmd:
 	banksel PMD0
 	clrf    PMD0
@@ -153,18 +156,19 @@ main:
 ;;;
 	UART_PRINT "\r\nv1\r\n"
 
+;;; -------------------- Main loop ----------------
 main_loop:
 	;; Show prompt, read char.
 	;; if char is number,
 	movlw '>'
-	call write_char
-	call    do_receive
+	call t_write_char
+	call do_receive
 	addlw   -0x3a
 	IFNCARRY goto    small_thing
 	addlw   0x3a
 	movlb   0
 	movwf   LATA
-	call    write_char
+	call    t_write_char
 	movwf   INDF0
 	call    print_octet
 
@@ -191,15 +195,8 @@ dispatcher:
 	goto main_loop			;8
 	goto main_loop			;9
 
-do_receive:
-	banksel PIR3
-	btfss PIR3, RCIF
-	goto do_receive
-	movlb 0x02
-	movf RCREG, W
-	return
-
-tos_to_fsr1:			; any -- unspecified
+;;; ---------------- Utilities ------------------
+tos_to_fsr1:
 	banksel TOSH
 	decf STKPTR, F 		; on top is call to us...
 	movf TOSH, W
@@ -210,6 +207,41 @@ tos_to_fsr1:			; any -- unspecified
 	incf STKPTR, F
 	return
 
+;;; ---------------- UART input ------------------
+do_receive:
+	banksel PIR3
+	btfss PIR3, RCIF
+	goto do_receive
+	movlb 0x02
+	movf RCREG, W
+	return
+
+;;; ---------------- UART output -----------------
+
+t_write_char:
+	banksel PIR3
+	btfss   PIR3, TXIF
+	goto    t_write_char
+	banksel TX1REG
+	movwf  TX1REG
+	return
+
+print_nibble:	      ; nibble -- char
+	;; Convert nibble to ascii and put to the screen
+	andlw   0x0f
+	addlw   0xf6
+	IFCARRY addlw   0x7
+	addlw   0x3a
+	goto t_write_char
+
+print_octet:			; octet any -- octet 0x20
+	swapf INDF0, W
+	call print_nibble
+	movf INDF0, W
+	call print_nibble
+	movlw 0x20
+	goto t_write_char
+
 put_string_in_code:		; any length -- 0 unspecified
 ;;; Write string pointed from FSR1 till zero octet and newline
 ;;; get FSR1 from TOS
@@ -217,13 +249,13 @@ put_string_in_code:		; any length -- 0 unspecified
 	call tos_to_fsr1
 put_string_b:
 	moviw FSR1++
-	call write_char
+	call t_write_char
 	decfsz INDF0, F
 	goto put_string_b
 	movlw 0x0a
-	call write_char
+	call t_write_char
 	movlw 0x0d
-	call write_char
+	call t_write_char
 fsr1_to_tos:			; any -- unspecified
 	banksel TOSL
 	;; high bit set seems not to be a problem
@@ -233,32 +265,7 @@ fsr1_to_tos:			; any -- unspecified
 	movwf TOSL
 	return
 
-write_char:		       ; char -- char
-;;; write char at W. Keeps W unchanged.
-	banksel PIR3
-	btfss   PIR3, TXIF
-	goto    write_char
-	banksel TX1REG
-	movwf  TX1REG
-	return
-
-print_octet:			; octet any -- octet 0x20
-	swapf INDF0, W
-	call print_nibble
-	movf INDF0, W
-	call print_nibble
-	movlw 0x20
-	goto write_char
-
-print_nibble:	      ; nibble -- char
-	;; Convert nibble to ascii and put to the screen
-	andlw   0x0f
-	addlw   0xf6
-	IFCARRY addlw   0x7
-	addlw   0x3a
-	goto write_char
-
-;;; I2C
+;;; ----------------- I²C ----------------------
 
 t_wait_clean_sspif: 		; no pars
 	banksel PIR3
@@ -272,33 +279,32 @@ send_i2c_address:		;
 	bsf   0x11, 0		; SEN
 	call t_wait_clean_sspif
 	movlw OLED_I2C_ADDRESS
-
-send_i2c_octet:			; octet -- octet
+	;; fall through
+t_send_i2c_octet:
 	movlb 0x03
 	movwf SSP1BUF		; SSP1BUF
 	call t_wait_clean_sspif
-
 	movlb 0x03
-	btfss 0x11, 6 		; ACKSTAT
+	btfss SSP1CON2, ACKSTAT
 	return
 
-got_noack:
+got_noack:			; error situation
 	UART_PRINT "noack"
 	return
 
-send_i2c_stop:
+t_send_i2c_stop:
 	movlb 0x03
-	bsf   0x11 ,2 		; PEN
+	bsf SSP1CON2, PEN
 	goto t_wait_clean_sspif
 
-send_oled_cmd:			; len -- ???
+t_send_oled_cmd:
 	movwi FSR0++
 	call send_i2c_address
 	movlw 0x80		; no continuation, next is command
-	call send_i2c_octet
+	call t_send_i2c_octet
 	moviw --FSR0
-	call send_i2c_octet
-	goto send_i2c_stop
+	call t_send_i2c_octet
+	goto t_send_i2c_stop
 
 d_send_oled_cmds:
 	;; send commands from IFR1 till zero byte
@@ -310,12 +316,12 @@ d_send_oled_cmds:
 
 oled_more_cmds:
 	movlw 0x80		; no continuation, next is command
-	call send_i2c_octet
+	call t_send_i2c_octet
 	moviw 1++
-	call send_i2c_octet
+	call t_send_i2c_octet
 	decfsz INDF0
 	goto oled_more_cmds
-	goto send_i2c_stop
+	goto t_send_i2c_stop
 
 
 fill_r0_low:
@@ -329,27 +335,27 @@ send_oled_data_fill:
 	movwi ++FSR0
 	call send_i2c_address
 	movlw 0x40		; continuation, next is data
-	call send_i2c_octet
+	call t_send_i2c_octet
 oled_fill_more_data:
 	moviw -1[0]
-	call send_i2c_octet
+	call t_send_i2c_octet
 	decfsz INDF0
 	goto oled_fill_more_data
 	movwi FSR0--
-	goto send_i2c_stop
+	goto t_send_i2c_stop
 
 send_oled_data_fsr1:
 	;; send W data from IFR1
 	movwf 0x7f
 	call send_i2c_address
 	movlw 0x40		; continuation, next is data
-	call send_i2c_octet
+	call t_send_i2c_octet
 oled_more_data:
 	moviw 1++
-	call send_i2c_octet
+	call t_send_i2c_octet
 	decfsz 0x7f
 	goto oled_more_data
-	goto send_i2c_stop
+	goto t_send_i2c_stop
 
 oled_off:
         OLED_CMD 0xAE  ;  Set OLED Display Off
@@ -363,7 +369,7 @@ oled_on:
 oled_set_row:
 	andlw 0x07
 	addlw 0xb0
-	call send_oled_cmd
+	call t_send_oled_cmd
 	OLED_CMD 0x10		; col 0
 	OLED_CMD 0x00		; col 0
 	return
