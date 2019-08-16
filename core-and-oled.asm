@@ -155,8 +155,7 @@ main_loop:
 	movlb   0
 	movwf   LATA
 	call    t_write_char
-	movwf   INDF0
-	call    print_octet
+	call    oled_send_char
 
 main_ok:
 	UART_PRINT "Ok\r\n>"
@@ -183,15 +182,6 @@ dispatcher:
 
 ;;; ---------------- Utilities ------------------
 tos_to_fsr1:
-	banksel TOSH
-	decf STKPTR, F 		; on top is call to us...
-	movf TOSH, W
-	addlw 0x80
-	movwf FSR1H
-	movf TOSL, W
-	movwf FSR1L
-	incf STKPTR, F
-	return
 
 ;;; ---------------- UART input ------------------
 do_receive:
@@ -232,7 +222,12 @@ put_string_in_code:		; any length -- 0 unspecified
 ;;; Write string pointed from FSR1 till zero octet and newline
 ;;; get FSR1 from TOS
 	movwi INDF0
-	call tos_to_fsr1
+	banksel TOSH
+	movf TOSH, W
+	addlw 0x80
+	movwf FSR1H
+	movf TOSL, W
+	movwf FSR1L
 put_string_b:
 	moviw FSR1++
 	call t_write_char
@@ -364,14 +359,31 @@ oled_set_row:
 	OLED_CMD 0x00		; col 0
 	return
 
+oled_send_char:
+	;; W contains char
+	addlw -0x20
+	;; W is now 0x00 to 0x5e
+	;; we know that FSR0 is 0
+	movwf FSR1L
+	movwi ++FSR0
+	movlw high(font)
+	movwf FSR1H
+	moviw FSR0--
+	lslf FSR1L		;
+	lslf FSR1L		; carry possible now
+	btfsc STATUS, C
+	incf FSR1H
+	addwf FSR1L
+	btfsc STATUS, C
+	incf FSR1H
+	movlw 5
+	goto send_oled_data_fsr1
+
 oled_put_picture2:
-	OLED_CMD 0xB2		; row 0
+	OLED_CMD 0xB0		; row 0
 	OLED_CMD 0x10		; col 0
 	OLED_CMD 0x00		; col 0
-	MOVLWF FSR1H, high(font)
-	MOVLWF FSR1L, low(font)
-	movlw 64
-	goto send_oled_data_fsr1
+	return
 
 oled_put_picture1:
 	OLED_CMD 0xB0		; row 0
@@ -382,6 +394,7 @@ oled_put_picture1:
 	movlw 64
 	goto send_oled_data_fsr1
 
+	org 0x1000
 font:
     ;; this is from an example code for the board
     dt 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x5F,0x00,0x00,0x00,0x07,0x00,0x07,0x00 ;	'sp,!,"
