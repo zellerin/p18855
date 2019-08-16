@@ -292,38 +292,10 @@ t_send_oled_cmd:
 	call t_send_i2c_octet
 	goto t_send_i2c_stop
 
-d_send_oled_cmds:
-	;; send commands from IFR1 till zero byte
-	movwf INDF0
-	call tos_to_fsr1
-	call send_i2c_address
-	call oled_more_cmds
-	goto fsr1_to_tos
-
 OLED_CMD macro value
 	movlw value
 	call t_send_oled_cmd
 	endm
-
-oled_more_cmds:
-	movlw 0x80		; no continuation, next is command
-	call t_send_i2c_octet
-	moviw 1++
-	call t_send_i2c_octet
-	decfsz INDF0
-	goto oled_more_cmds
-	goto t_send_i2c_stop
-
-OLED_CMDS macro text
-	local bot
-	local eot
-	movlw eot-bot
-	call d_send_oled_cmds
-bot:	dt text
-eot:
-	endm
-
-
 
 fill_r0_low:
 	movlw 0
@@ -347,14 +319,14 @@ oled_fill_more_data:
 
 send_oled_data_fsr1:
 	;; send W data from IFR1
-	movwf 0x7f
+	movwf INDF0
 	call send_i2c_address
 	movlw 0x40		; continuation, next is data
 	call t_send_i2c_octet
 oled_more_data:
 	moviw 1++
 	call t_send_i2c_octet
-	decfsz 0x7f
+	decfsz INDF0
 	goto oled_more_data
 	goto t_send_i2c_stop
 
@@ -364,8 +336,25 @@ oled_off:
 
 oled_on:
 	;; see Figure 2 of SSD1306 docs
-	OLED_CMDS "\xA8\x3f\xd3\x00\x40\xa0\xc0\x81\x7f\xa4\xa6\x0d\x80\x8d\x14\xaf"
-	return
+	movlw high(oled_init_code)
+	movwf FSR1H
+	movlw low(oled_init_code)
+	movwf FSR1L
+	movlw oled_init_code_end - oled_init_code
+	movwf INDF0
+	call send_i2c_address
+oled_more_cmds:
+	movlw 0x80		; no continuation, next is command
+	call t_send_i2c_octet
+	moviw 1++
+	call t_send_i2c_octet
+	decfsz INDF0
+	goto oled_more_cmds
+	goto t_send_i2c_stop
+
+oled_init_code:
+	dt "\xA8\x3f\xd3\x00\x40\xa0\xc0\x81\x7f\xa4\xa6\x0d\x80\x8d\x14\xaf"
+oled_init_code_end:
 
 oled_set_row:
 	andlw 0x07
