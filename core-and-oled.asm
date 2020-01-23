@@ -22,7 +22,7 @@
 ;;; - t_ :: tiny, does not change W nor INDF0
 ;;; - d_ :: dirty, modifies INDF
 ;;; - without prefix :: either not callable (part of init, part of
-;;;                     main loop) or destroys W, preserves W
+;;;                     main loop) or destroys W, preserves INDF
 
 	include p16f18855.inc
         CONFIG RSTOSC=HFINT1, FEXTOSC=OFF, ZCD=ON, WDTE=OFF, LVP=OFF
@@ -40,6 +40,11 @@ CALL1	macro target, parameter
 MOVLWF  macro field, value
 	movlw value
 	movwf field
+	endm
+
+MOVLWD macro hi, lo, value
+	MOVLWF hi, high(value)
+	MOVLWF lo, low(value)
 	endm
 
 IFCARRY macro cmd
@@ -71,22 +76,26 @@ eot:
 	clrf    PMD4
 	clrf    PMD5
 
-;;; pin_init:
+;;; Pin assingment:
+;;; - UART over USB is on RC0 (TX) and RC1 (RX)
+;;; - OLED display is over RC3 (SDA) and RC4 (SCL)
+;;; - Internal LEDs on board are fed by A0 to A3;
+;;;
 	banksel 0
 	clrf    LATA
 	clrf    LATB
-	MOVLWF  LATC, b'01000001' ; C6 high (RX on Click), C0 high (TX - USB)
-	MOVLWF  TRISA, b'11110000'; A0 to A3 output (LED), A4-A7 in (POT, SW1, Alarms)
+	MOVLWF  LATC, b'01000001' ; high are C6 (RX on Click) and C0 (TX - USB)
+	MOVLWF  TRISA, b'11110000'; A0 to A3 output (LED), A4-A7 input (POT, SW1, Alarms)
 	MOVLWF  TRISB, -1
 	MOVLWF  TRISC, ~b'1'	; C0 (TX-USB) input, i2c pins input
 
 	banksel 0xf00  ; ----------- BANK 30, 0xf.. -----------------
 	MOVLWF  ANSELC, 0xe5 ; digital input for RX-USB, RC3, RC4
-	;MOVLWF  ANSELB, -1  ; default - no digital input
-	;movwf   ANSELA ; default; no digital input
-	;MOVLWF  WPUB, -1   ; enable all pulups
-	;MOVWF   WPUA
-	;MOVWF   WPUC
+	; MOVLWF  ANSELB, -1  ; default - no digital input
+	; movwf   ANSELA ; default; no digital input
+	; MOVLWF  WPUB, -1   ; enable all pulups
+	; MOVWF   WPUA
+	; MOVWF   WPUC
 	MOVLWF  WPUE, 0x08
 	; clrf    ODCONA 		; default
 	; clrf    ODCONB		; default
@@ -103,41 +112,80 @@ eot:
 	MOVLWF  SSP1DATPPS, 0x14	; RC4
 	MOVLWF  SSP1CLKPPS, 0x13	; RC3
 
-;;; osc_init:
-	;banksel OSCCON1
-	;MOVLWF  OSCCON1,0x62 	; HFINTOSC, divider 4 - default for config
-	;clrf    OSCCON3		; default
-	;clrf    OSCEN		; default
-	;MOVLWF  OSCFRQ, 0x02	; 4Mhz, default for config
-	;clrf    OSCTUNE		; minimum frequency - BUG
+;;; osc_init: What follows are defaults for CONFIG RSTOSC=HFINT1
+	; banksel OSCCON1
+	; MOVLWF  OSCCON1,0x62 	; HFINTOSC, divider 4
+	; clrf    OSCCON3
+	; clrf    OSCEN
+	; MOVLWF  OSCFRQ, 0x02	; 4Mhz
+	; clrf    OSCTUNE ; minimum frequency - BUG
 
 ;;; SSP1 specific init (see also pins)
 	banksel SSP1ADD
-	MOVLWF SSP1ADD, 0x09	; 100khz at 4Hz clock
-	MOVLWF SSP1CON1, 0x28	; SPEN, mode master I2C to SSP1CON1
+	MOVLWF SSP1ADD, 0x09	; 100khz at 4MHz clock
 
-;;; eusart_init:
-	banksel PIE3
-	bcf     PIE3, 0x5
-	bcf     PIE3, 0x4
+	;; | name  | bit     | val |
+	;; |-------+---------+-----|
+	;; | SSPM  | 0-3     |   8 |
+	;; | CKP   | H'0004' |   0 |
+	;; | SSPEN | H'0005' |   1 |
+	;; | SSPOV | H'0006' |   0 |
+	;; | WCOL  | H'0007' |   0 |
+	MOVLWF SSP1CON1, 0x28
+
+;;; Interrupts setup - no interrupts atm, default
+	; banksel PIE3
+	;; | name   | bit     | val |
+	;; |--------+---------+-----|
+	;; | SSP1IE | H'0000' |   0 |
+	;; | BCL1IE | H'0001' |   0 |
+	;; | SSP2IE | H'0002' |   0 |
+	;; | BCL2IE | H'0003' |   0 |
+	;; | TXIE   | H'0004' |   0 |
+	;; | RCIE   | H'0005' |   0 |
+	; MOVLWF PIE3, 0x0f
 
 ;;; USART
 	banksel BAUD1CON
-	MOVLWF  BAUD1CON, 0x08
-;;; BDOVF no_overflow; SCKP Non-Inverted;
-;;; BRG16 16bit_generator; WUE disabled; ABDEN disabled
+	bsf  BAUD1CON, BRG16
+	;; | name   | bit     | val | comment             |
+	;; |--------+---------+-----+---------------------|
+	;; | ABDEN  | H'0000' |   0 | no autobaud         |
+	;; | WUE    | H'0001' |   0 | wake up disabled    |
+	;; | N/A    | 2       |   0 |                     |
+	;; | BRG16  | H'0003' |   1 | 16bit timer for baud |
+	;; | SCKP   | H'0004' |   0 | idle TX is high      |
+	;; | n/a    | 5       |   X |
+	;; | RCIDL  | H'0006' |   X | RO                  |
+	;; | ABDOVF | H'0007' |   X | RO                  |
+	;; default 0
 
 	MOVLWF  RCSTA, 0x90
-	;; SPEN enabled; RX9 8-bit; CREN enabled; ADDEN disabled; SREN
-	;;  disabled;
+	;; default 0
+	;; | name  | bit     | value |                   |
+	;; |-------+---------+-------+-------------------|
+	;; | RX9D  | H'0000' |     X |                   |
+	;; | OERR  | H'0001' |     X |                   |
+	;; | FERR  | H'0002' |     X |                   |
+	;; | ADDEN | H'0003' |     0 | no address detect |
+	;; | CREN  | H'0004' |     1 | continuous receive |
+	;; | SREN  | H'0005' |     X | unused in async mode
+	;; | RX9   | H'0006' |     0 | 8bit reception        |
+	;; | SPEN  | H'0007' |     1 | serial enabled    |
 
 	MOVLWF  TXSTA, 0x24
-;; TX9 8-bit; TX9D 0; SENDB sync_break_complete; TXEN enabled;
-;; SYNC asynchronous; BRGH hi_speed; CSRC slave;
-	MOVLWF  SPBRGL, 0x19 ; 9600 Bd@4Mhz
+	;; | TX9D       | H'0000' | 0 |
+	;; | TRMT       | H'0001' | 0 |
+	;; | BRGH       | H'0002' | 1 | high speed
+	;; | SENDB      | H'0003' | 0 |
+	;; | SYNC       | H'0004' | 0 | asynchronous
+	;; | TXEN       | H'0005' | 1 | enable
+	;; | TX9        | H'0006' | 0 | 8 bit transmission
+	;; | CSRC       | H'0007' | 0 | slave
+
+	MOVLWF  SPBRGL, 0x19 ; SPBGR=0x19, 4000khz/16*(25+1)=9.615
 	clrf    SPBRGH
 
-;;; --------------------------------------------
 ;;; Stack init
 	MOVLWF FSR0L, 0x20
 	clrf FSR0H
@@ -147,29 +195,33 @@ eot:
 
 ;;; -------------------- Main loop ----------------
 main_loop:
-	;; Show prompt, read char.
-	;; if char is number,
+	;; Show prompt, read char.  if char is a digit, dispatch to
+	;; appropriate subroutine in dispatecher. If not, show bit of char on
+	;; LEDs (PORTA), write char back, show it on screen and go on
 	CALL1 t_write_char,  '>'
 	call do_receive
-	addlw   -0x3a
-	IFNCARRY goto small_thing
-	addlw   0x3a
-	movlb   0
+	addlw   -('9'+1)	; may be digit
+	IFNCARRY goto maybe_digit
+	addlw   '9'+1		; add back to original value
+	banksel LATA
 	movwf   LATA
 	call    t_write_char
 	call    oled_send_char
 
 main_ok:
+	;; Report success and start anew
 	UART_PRINT "Ok\r\n>"
 	goto main_loop
 
-small_thing:
+maybe_digit:
+	;; Receives char-'9'-1; adds back 9+1 to find out if it is a digit.
 	addlw 0x0a
-	IFNCARRY goto main_ok
-	call dispatcher
+	IFNCARRY goto main_ok	; not a digit, ignore
+	call dispatcher		;
 	goto main_loop
 
 dispatcher:
+	;; Bug: some return (goto main_loop), some not (oled_on)
 	brw
 	goto oled_off				;0
 	goto oled_on				;1
@@ -237,7 +289,7 @@ put_string_b:
 	goto put_string_b
 	CALL1 t_write_char, 0x0a
 	CALL1 t_write_char, 0x0d
-fsr1_to_tos:			; any -- unspecified
+fsr1_to_tos:			; any -- TOSL
 	banksel TOSL
 	;; high bit set seems not to be a problem
 	movf FSR1H, W
@@ -325,8 +377,7 @@ oled_off:
 
 oled_on:
 	;; see Figure 2 of SSD1306 docs
-	MOVLWF FSR1H, high(oled_init_code)
-	MOVLWF FSR1L, low(oled_init_code)
+	MOVLWD FSR1H, FSR1L, oled_init_code
 	MOVLWF INDF0, oled_init_code_end - oled_init_code
 	call send_i2c_address
 oled_more_cmds:
@@ -359,14 +410,14 @@ oled_send_char:
 	movlw high(font)
 	movwf FSR1H
 	moviw FSR0--
-	lslf FSR1L		;
+	lslf FSR1L		; times 4 -
 	lslf FSR1L		; carry possible now
 	btfsc STATUS, C
 	incf FSR1H
 	addwf FSR1L
 	btfsc STATUS, C
 	incf FSR1H
-	movlw 5
+	movlw 5 		; octets per char in font
 	goto send_oled_data_fsr1
 
 oled_put_picture2:
@@ -379,48 +430,10 @@ oled_put_picture1:
 	OLED_CMD 0xB0		; row 0
 	OLED_CMD 0x10		; col 0
 	OLED_CMD 0x00		; col 0
-	MOVLWF FSR1H, high(font)
-	MOVLWF FSR1L, low(font)
+	MOVLWD FSR1H, FSR1L, font
 	movlw 64
 	goto send_oled_data_fsr1
 
-	org 0x1000
-font:
-    ;; this is from an example code for the board
-    dt 0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x5F,0x00,0x00,0x00,0x07,0x00,0x07,0x00 ;	'sp,!,"
-    dt 0x14,0x7F,0x14,0x7F,0x14 ; #
-    dt 0x24,0x2A,0x7F,0x2A,0x12,0x23,0x13,0x08,0x64,0x62,0x36,0x49,0x56,0x20,0x50 ;	'$,%,&
-    dt 0x00,0x08,0x07,0x03,0x00,0x00,0x1C,0x22,0x41,0x00,0x00,0x41,0x22,0x1C,0x00 ;	'',(,)
-    dt 0x2A,0x1C,0x7F,0x1C,0x2A,0x08,0x08,0x3E,0x08,0x08,0x00,0x00,0x70,0x30,0x00 ;	'*,+,,
-    dt 0x08,0x08,0x08,0x08,0x08,0x00,0x00,0x60,0x60,0x00,0x20,0x10,0x08,0x04,0x02 ;	'-,.,/
-    dt 0x3E,0x51,0x49,0x45,0x3E,0x00,0x42,0x7F,0x40,0x00,0x72,0x49,0x49,0x49,0x46 ;	'0,1,2
-    dt 0x21,0x41,0x49,0x4D,0x33,0x18,0x14,0x12,0x7F,0x10,0x27,0x45,0x45,0x45,0x39 ;	'3,4,5
-    dt 0x3C,0x4A,0x49,0x49,0x31,0x41,0x21,0x11,0x09,0x07,0x36,0x49,0x49,0x49,0x36 ;	'6,7,8
-    dt 0x46,0x49,0x49,0x29,0x1E,0x00,0x00,0x14,0x00,0x00,0x00,0x40,0x34,0x00,0x00 ;	'9,:,;
-    dt 0x00,0x08,0x14,0x22,0x41,0x14,0x14,0x14,0x14,0x14,0x00,0x41,0x22,0x14,0x08 ;	'<,=,>
-    dt 0x02,0x01,0x59,0x09,0x06,0x3E,0x41,0x5D,0x59,0x4E                          ;       '?,@
-    dt 0x7C,0x12,0x11,0x12,0x7C                                                   ;	'A
-    dt 0x7F,0x49,0x49,0x49,0x36,0x3E,0x41,0x41,0x41,0x22,0x7F,0x41,0x41,0x41,0x3E ;	'B,C,D
-    dt 0x7F,0x49,0x49,0x49,0x41,0x7F,0x09,0x09,0x09,0x01,0x3E,0x41,0x41,0x51,0x73 ;	'E,F,G
-    dt 0x7F,0x08,0x08,0x08,0x7F,0x00,0x41,0x7F,0x41,0x00,0x20,0x40,0x41,0x3F,0x01 ;	'H,I,J
-    dt 0x7F,0x08,0x14,0x22,0x41,0x7F,0x40,0x40,0x40,0x40,0x7F,0x02,0x1C,0x02,0x7F ;	'K,L,M
-    dt 0x7F,0x04,0x08,0x10,0x7F,0x3E,0x41,0x41,0x41,0x3E,0x7F,0x09,0x09,0x09,0x06 ;	'N,O,P
-    dt 0x3E,0x41,0x51,0x21,0x5E,0x7F,0x09,0x19,0x29,0x46,0x26,0x49,0x49,0x49,0x32 ;	'Q,R,S
-    dt 0x03,0x01,0x7F,0x01,0x03,0x3F,0x40,0x40,0x40,0x3F,0x1F,0x20,0x40,0x20,0x1F ;	'T,U,V
-    dt 0x3F,0x40,0x38,0x40,0x3F,0x63,0x14,0x08,0x14,0x63,0x03,0x04,0x78,0x04,0x03 ;	'W,X,Y
-    dt 0x61,0x59,0x49,0x4D,0x43                                                   ;  'Z
-    dt 0x00,0x7F,0x41,0x41,0x41,0x02,0x04,0x08,0x10,0x20                          ;	'[,\
-    dt 0x00,0x41,0x41,0x41,0x7F,0x04,0x02,0x01,0x02,0x04,0x40,0x40,0x40,0x40,0x40 ;	'],^,_
-    dt 0x00,0x03,0x07,0x08,0x00,0x20,0x54,0x54,0x38,0x40,0x7F,0x28,0x44,0x44,0x38 ;	'`,a,b
-    dt 0x38,0x44,0x44,0x44,0x28,0x38,0x44,0x44,0x28,0x7F,0x38,0x54,0x54,0x54,0x18 ;	'c,d,e
-    dt 0x00,0x08,0x7E,0x09,0x02,0x0C,0x52,0x52,0x4A,0x3C,0x7F,0x08,0x04,0x04,0x78 ;	'f,g,h
-    dt 0x00,0x44,0x7D,0x40,0x00,0x20,0x40,0x40,0x3D,0x00,0x7F,0x10,0x28,0x44,0x00 ;	'i,j,k
-    dt 0x00,0x41,0x7F,0x40,0x00,0x7C,0x04,0x78,0x04,0x78,0x7C,0x08,0x04,0x04,0x78 ;	'l,m,n
-    dt 0x38,0x44,0x44,0x44,0x38,0x7C,0x18,0x24,0x24,0x18,0x18,0x24,0x24,0x18,0x7C ;	'o,p,q
-    dt 0x7C,0x08,0x04,0x04,0x08,0x48,0x54,0x54,0x54,0x24,0x04,0x04,0x3F,0x44,0x24 ;	'r,s,t
-    dt 0x3C,0x40,0x40,0x20,0x7C,0x1C,0x20,0x40,0x20,0x1C,0x3C,0x40,0x30,0x40,0x3C ;	'u,v,w
-    dt 0x44,0x28,0x10,0x28,0x44,0x4C,0x50,0x50,0x50,0x3C,0x44,0x64,0x54,0x4C,0x44 ;	'x,y,z
-    dt 0x00,0x08,0x36,0x41,0x00,0x00,0x00,0x77,0x00,0x00,0x00,0x41,0x36,0x08,0x00 ;	'{,|,}
-    dt 0x02,0x01,0x02,0x04,0x02
+	include "font5x8.asm"
 
  end
