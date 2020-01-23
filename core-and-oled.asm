@@ -186,8 +186,7 @@ eot:
 	MOVLWF  SPBRGL, 0x19 ; SPBGR=0x19, 4000khz/16*(25+1)=9.615
 	clrf    SPBRGH
 
-rownum:	EQU 0x20
-colnum:	EQU 0x21
+position:	EQU 0x20
 ;;; Stack init
 
 	MOVLWF FSR0L, 0x22
@@ -339,10 +338,10 @@ t_send_i2c_stop:
 	goto t_wait_clean_sspif
 
 t_send_oled_cmd:
-	movwi FSR0++
+	movwi ++FSR0
 	call send_i2c_address
 	CALL1 t_send_i2c_octet, 0x80 ;; no continuation, next is command
-	moviw --FSR0
+	moviw FSR0--
 	call t_send_i2c_octet
 	goto t_send_i2c_stop
 
@@ -403,22 +402,24 @@ oled_init_code_end:
 oled_set_row_col:
 	;; Set column and row based on rownum
 	;; row is rownum mod 8 (reverted)
-	;; col is 12xrownum mod 8 = 12x(rownum and 0xF8)/8 = 3*(rownum and 0xf8)/2
 	banksel 0
 	movf rownum, W
 	andlw 0x07
-	xorlw 0xb7
+	xorlw 0xb7 		; also invert!
 	call t_send_oled_cmd
+	;; col is 12xrownum mod 8 = 12x(rownum and 0xF8)/8 = 3*(rownum and 0xf8)/2
+	banksel rownum
 	movf rownum, W
 	andlw 0xf8
-	movwf colnum
-	lsrf colnum, F
-	addwf colnum, F
-	movf colnum, W
+	movwf INDF0		; rownum & 0xf8
+	lsrf INDF0, F		; (rownum & oxf8)/2
+	addwf INDF0, F		; column
+	swapf INDF0, W
 	andlw 0x0f
 	iorlw 0x10
 	call t_send_oled_cmd
-	movf colnum, W
+	banksel rownum
+	movf INDF0, W
 	andlw 0x0f
 	call t_send_oled_cmd
 	return
@@ -427,37 +428,39 @@ oled_send_char:
 	;; W contains char
 	addlw -0x20
 	;; W is now 0x00 to 0x5e
-	;; we know that FSR0 is 0
+	;; we know that fonts start at low addr0
 	movwf FSR1L
 	movlw high(font)
 	movwf FSR1H
 	lslf FSR1L,W		; x2
 	addwf FSR1L,F		; x3 in F
+	movlw 4
+	btfsc STATUS, C
+	addwf FSR1H, F
 	call oled_set_row_col 	; W can be modified now ;)
-	lslf FSR1L,F		; x6 - carry possible now
+	banksel 0
+	incf rownum, F
+	lslf FSR1L,F		; x6 - carry possible now, means +2
 	movlw 2
 	btfsc STATUS, C
 	addwf FSR1H, F
-	lslf FSR1L,F		; x6 - carry possible now
+	lslf FSR1L,F		; x12 - carry possible now
 	btfsc STATUS, C
 	incf FSR1H
 	movlw 0x0c 		; octets per char in font
-	call send_oled_data_fsr1
-	banksel 0
-	incf rownum, F
-	return
+	goto send_oled_data_fsr1
 
 oled_put_picture2:
-	clrf rownum
-	clrf colnum
+	banksel position
+	clrf position
 	goto oled_set_row_col
 
 oled_put_picture1:
-	clrf rownum
-	clrf colnum
+	banksel position
+	clrf position
 	call oled_set_row_col
 	MOVLWD FSR1H, FSR1L, font
-	movlw 64
+	movlw 0xFF
 	goto send_oled_data_fsr1
 
 	include "font8x12.asm"
