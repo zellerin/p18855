@@ -406,18 +406,18 @@ oled_send_char:
 	;; W is now 0x00 to 0x5e
 	;; we know that FSR0 is 0
 	movwf FSR1L
-	movwi ++FSR0
 	movlw high(font)
 	movwf FSR1H
-	moviw FSR0--
-	lslf FSR1L		; times 4 -
-	lslf FSR1L		; carry possible now
+	lslf FSR1L,W		; x2
+	addwf FSR1L,F		; x3 in W
+	lslf FSR1L,F		; x6 - carry possible now
+	movlw 2
+	btfsc STATUS, C
+	addwf FSR1H, F
+	lslf FSR1L,F		; x6 - carry possible now
 	btfsc STATUS, C
 	incf FSR1H
-	addwf FSR1L
-	btfsc STATUS, C
-	incf FSR1H
-	movlw 5 		; octets per char in font
+	movlw 0x0c 		; octets per char in font
 	goto send_oled_data_fsr1
 
 oled_put_picture2:
@@ -434,6 +434,6 @@ oled_put_picture1:
 	movlw 64
 	goto send_oled_data_fsr1
 
-	include "font5x8.asm"
+	include "font8x12.asm"
 
  end
