@@ -186,8 +186,11 @@ eot:
 	MOVLWF  SPBRGL, 0x19 ; SPBGR=0x19, 4000khz/16*(25+1)=9.615
 	clrf    SPBRGH
 
+rownum:	EQU 0x20
+colnum:	EQU 0x21
 ;;; Stack init
-	MOVLWF FSR0L, 0x20
+
+	MOVLWF FSR0L, 0x22
 	clrf FSR0H
 
 ;;; Initialization done
@@ -343,7 +346,7 @@ OLED_CMD macro value
 	endm
 
 fill_r0_low:
-	CALL1 oled_set_row, 0
+	call oled_put_picture2
 	MOVLWF INDF0, 0x04
 	movlw 80
 send_oled_data_fill:
@@ -392,12 +395,27 @@ oled_init_code:
 	dt "\xA8\x3f\xd3\x00\x40\xa0\xc0\x81\x7f\xa4\xa6\x0d\x80\x8d\x14\xaf"
 oled_init_code_end:
 
-oled_set_row:
+oled_set_row_col:
+	;; Set column and row based on rownum
+	;; row is rownum mod 8 (reverted)
+	;; col is 12xrownum mod 8 = 12x(rownum and 0xF8)/8 = 3*(rownum and 0xf8)/2
+	banksel 0
+	movf rownum, W
 	andlw 0x07
-	addlw 0xb0
+	xorlw 0xb7
 	call t_send_oled_cmd
-	OLED_CMD 0x10		; col 0
-	OLED_CMD 0x00		; col 0
+	movf rownum, W
+	andlw 0xf8
+	movwf colnum
+	lsrf colnum, F
+	addwf colnum, F
+	movf colnum, W
+	andlw 0x0f
+	iorlw 0x10
+	call t_send_oled_cmd
+	movf colnum, W
+	andlw 0x0f
+	call t_send_oled_cmd
 	return
 
 oled_send_char:
@@ -409,7 +427,8 @@ oled_send_char:
 	movlw high(font)
 	movwf FSR1H
 	lslf FSR1L,W		; x2
-	addwf FSR1L,F		; x3 in W
+	addwf FSR1L,F		; x3 in F
+	call oled_set_row_col 	; W can be modified now ;)
 	lslf FSR1L,F		; x6 - carry possible now
 	movlw 2
 	btfsc STATUS, C
@@ -418,18 +437,20 @@ oled_send_char:
 	btfsc STATUS, C
 	incf FSR1H
 	movlw 0x0c 		; octets per char in font
-	goto send_oled_data_fsr1
-
-oled_put_picture2:
-	OLED_CMD 0xB0		; row 0
-	OLED_CMD 0x10		; col 0
-	OLED_CMD 0x00		; col 0
+	call send_oled_data_fsr1
+	banksel 0
+	incf rownum, F
 	return
 
+oled_put_picture2:
+	clrf rownum
+	clrf colnum
+	goto oled_set_row_col
+
 oled_put_picture1:
-	OLED_CMD 0xB0		; row 0
-	OLED_CMD 0x10		; col 0
-	OLED_CMD 0x00		; col 0
+	clrf rownum
+	clrf colnum
+	call oled_set_row_col
 	MOVLWD FSR1H, FSR1L, font
 	movlw 64
 	goto send_oled_data_fsr1
