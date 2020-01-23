@@ -24,7 +24,6 @@
 ;;; - without prefix :: either not callable (part of init, part of
 ;;;                     main loop) or destroys W, preserves W
 
-        list p=16F18855
 	include p16f18855.inc
         CONFIG RSTOSC=HFINT1, FEXTOSC=OFF, ZCD=ON, WDTE=OFF, LVP=OFF
 
@@ -33,6 +32,11 @@ OLED_I2C_ADDRESS:	equ 0x78
 
 
 ;;; --------------------- Utility macros ---------------------
+CALL1	macro target, parameter
+	movlw parameter
+	call target
+	endm
+
 MOVLWF  macro field, value
 	movlw value
 	movwf field
@@ -51,8 +55,7 @@ IFNCARRY macro cmd
 UART_PRINT macro text
 	local bot
 	local eot
-	movlw eot-bot
-	call put_string_in_code
+	CALL1 put_string_in_code, eot-bot
 bot:	dt text
 eot:
 	endm
@@ -70,46 +73,46 @@ eot:
 
 ;;; pin_init:
 	banksel 0
-	clrf    0x16
-	clrf    0x17
-	MOVLWF  0x18, 0x41 ; C6 high (RX on Click), C0 high (TX - USB)
-	MOVLWF  0x11, 0xf0	; A0 to A3 output (LED), A4-A7 in (POT, SW1, Alarms)
-	MOVLWF  0X12, 0XFF
-	MOVLWF  0x13, 0xfe	; C0 (TX-USB) input, i2c pins input
+	clrf    LATA
+	clrf    LATB
+	MOVLWF  LATC, b'01000001' ; C6 high (RX on Click), C0 high (TX - USB)
+	MOVLWF  TRISA, b'11110000'; A0 to A3 output (LED), A4-A7 in (POT, SW1, Alarms)
+	MOVLWF  TRISB, -1
+	MOVLWF  TRISC, ~b'1'	; C0 (TX-USB) input, i2c pins input
 
-	movlb   0x1e  ; ----------- BANK 30, 0xf.. -----------------
-	MOVLWF  0x4e, 0xe5 ; anselc - digital input for RX-USB, RC3, RC4
-	MOVLWF  0x43, 0xff  ; anselb - no digital input
-	movwf   ANSELA ; no digital input
-	movwf   WPUB
+	banksel 0xf00  ; ----------- BANK 30, 0xf.. -----------------
+	MOVLWF  ANSELC, 0xe5 ; digital input for RX-USB, RC3, RC4
+	MOVLWF  ANSELB, -1  ; default - no digital input
+	movwf   ANSELA ; default; no digital input
+	movwf   WPUB   ; enable all pulups
 	MOVWF   WPUA
 	MOVWF   WPUC
-	MOVLWF  0x65, 0x08
-	clrf    ODCONA
-	clrf    ODCONB
-	clrf    ODCONC
-	movwf   SLRCONA
+	MOVLWF  WPUE, 0x08
+	clrf    ODCONA 		; default
+	clrf    ODCONB		; default
+	clrf    ODCONC		; default
+	movwf   SLRCONA		; slew rate, default -1, BUG here
 	movwf   SLRCONB
 	movwf   SLRCONC
 	MOVLWF  RC0PPS, 0x10	; TX/CK
-	MOVLWF  RC4PPS, 0X15	; SDA1
+	MOVLWF  RC4PPS, 0x15	; SDA1
 	MOVLWF  RC3PPS, 0x14	; SCL1
 
-	movlb   0x1d
-	MOVLWF  RXPPS, 0x11	; RC1
+	banksel 0xe80
+	MOVLWF  RXPPS, 0x11	        ; RC1
 	MOVLWF  SSP1DATPPS, 0x14	; RC4
 	MOVLWF  SSP1CLKPPS, 0x13	; RC3
 
 ;;; osc_init:
 	banksel OSCCON1
-	MOVLWF  OSCCON1, 0X62
-	clrf    OSCCON3
-	clrf    OSCEN
-	MOVLWF  OSCFRQ, 0x02
-	clrf    OSCTUNE
+	MOVLWF  OSCCON1,0x62 	; HFINTOSC, divider 4 - default for config
+	clrf    OSCCON3		; default
+	clrf    OSCEN		; default
+	MOVLWF  OSCFRQ, 0x02	; 4Mhz, default for config
+	clrf    OSCTUNE		; minimum frequency - BUG
 
 ;;; SSP1 specific init (see also pins)
-	movlb 0x03
+	banksel SSP1ADD
 	MOVLWF SSP1ADD, 0x09	; 100khz at 4Hz clock
 	MOVLWF SSP1CON1, 0x28	; SPEN, mode master I2C to SSP1CON1
 
@@ -139,18 +142,17 @@ eot:
 	MOVLWF FSR0L, 0x20
 	clrf FSR0H
 
-;;;
+;;; Initialization done
 	UART_PRINT "\r\nv1\r\n"
 
 ;;; -------------------- Main loop ----------------
 main_loop:
 	;; Show prompt, read char.
 	;; if char is number,
-	movlw '>'
-	call t_write_char
+	CALL1 t_write_char,  '>'
 	call do_receive
 	addlw   -0x3a
-	IFNCARRY goto    small_thing
+	IFNCARRY goto small_thing
 	addlw   0x3a
 	movlb   0
 	movwf   LATA
@@ -233,10 +235,8 @@ put_string_b:
 	call t_write_char
 	decfsz INDF0, F
 	goto put_string_b
-	movlw 0x0a
-	call t_write_char
-	movlw 0x0d
-	call t_write_char
+	CALL1 t_write_char, 0x0a
+	CALL1 t_write_char, 0x0d
 fsr1_to_tos:			; any -- unspecified
 	banksel TOSL
 	;; high bit set seems not to be a problem
@@ -281,29 +281,24 @@ t_send_i2c_stop:
 t_send_oled_cmd:
 	movwi FSR0++
 	call send_i2c_address
-	movlw 0x80		; no continuation, next is command
-	call t_send_i2c_octet
+	CALL1 t_send_i2c_octet, 0x80 ;; no continuation, next is command
 	moviw --FSR0
 	call t_send_i2c_octet
 	goto t_send_i2c_stop
 
 OLED_CMD macro value
-	movlw value
-	call t_send_oled_cmd
+	CALL1 t_send_oled_cmd, value
 	endm
 
 fill_r0_low:
-	movlw 0
-	call oled_set_row
-	movlw 0x04
-	movwf INDF0
+	CALL1 oled_set_row, 0
+	MOVLWF INDF0, 0x04
 	movlw 80
 send_oled_data_fill:
 	;; send W copies of indf
 	movwi ++FSR0
 	call send_i2c_address
-	movlw 0x40		; continuation, next is data
-	call t_send_i2c_octet
+	CALL1 t_send_i2c_octet, 0x40; continuation, next is data
 oled_fill_more_data:
 	moviw -1[0]
 	call t_send_i2c_octet
@@ -316,8 +311,7 @@ send_oled_data_fsr1:
 	;; send W data from IFR1
 	movwf INDF0
 	call send_i2c_address
-	movlw 0x40		; continuation, next is data
-	call t_send_i2c_octet
+	CALL1 t_send_i2c_octet, 0x40 ; ; continuation, next is data
 oled_more_data:
 	moviw 1++
 	call t_send_i2c_octet
@@ -331,16 +325,12 @@ oled_off:
 
 oled_on:
 	;; see Figure 2 of SSD1306 docs
-	movlw high(oled_init_code)
-	movwf FSR1H
-	movlw low(oled_init_code)
-	movwf FSR1L
-	movlw oled_init_code_end - oled_init_code
-	movwf INDF0
+	MOVLWF FSR1H, high(oled_init_code)
+	MOVLWF FSR1L, low(oled_init_code)
+	MOVLWF INDF0, oled_init_code_end - oled_init_code
 	call send_i2c_address
 oled_more_cmds:
-	movlw 0x80		; no continuation, next is command
-	call t_send_i2c_octet
+	CALL1 t_send_i2c_octet, 0x80		; no continuation, next is command
 	moviw 1++
 	call t_send_i2c_octet
 	decfsz INDF0
