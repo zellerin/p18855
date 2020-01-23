@@ -242,9 +242,9 @@ dispatcher:
 	goto main_loop			;9
 
 print_position:
-	CALL1 print_octet_w, rownum
-	banksel rownum
-	movf rownum, W
+	CALL1 print_octet_w, position
+	banksel position
+	movf position, W
 	goto print_octet_w
 
 ;;; ---------------- UART input ------------------
@@ -424,13 +424,13 @@ oled_set_row_col:
 	;; Set column and row based on rownum
 	;; row is rownum mod 8 (reverted)
 	banksel 0
-	movf rownum, W
+	movf position, W
 	andlw 0x07
 	xorlw 0xb7 		; also invert!
 	call t_send_oled_cmd
 	;; col is 12xrownum mod 8 = 12x(rownum and 0xF8)/8 = 3*(rownum and 0xf8)/2
-	banksel rownum
-	movf rownum, W
+	banksel position
+	movf position, W
 	andlw 0xf8
 	movwf INDF0		; rownum & 0xf8
 	lsrf INDF0, F		; (rownum & oxf8)/2
@@ -439,7 +439,6 @@ oled_set_row_col:
 	andlw 0x0f
 	iorlw 0x10
 	call t_send_oled_cmd
-	banksel rownum
 	movf INDF0, W
 	andlw 0x0f
 	call t_send_oled_cmd
@@ -459,8 +458,8 @@ oled_send_char:
 	btfsc STATUS, C
 	addwf FSR1H, F
 	call oled_set_row_col 	; W can be modified now ;)
-	banksel 0
-	incf rownum, F
+	banksel position
+	incf position, F
 	lslf FSR1L,F		; x6 - carry possible now, means +2
 	movlw 2
 	btfsc STATUS, C
