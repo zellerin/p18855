@@ -256,7 +256,21 @@ do_receive:
 	movf RCREG, W
 	return
 
+nibble_to_hexa:
+	andlw   0x0f
+	addlw   0xf6
+	IFCARRY addlw   0x7
+	addlw   0x3a
+	return
+
 ;;; ---------------- UART output -----------------
+
+print_nibble:
+	;; Convert nibble to hexadecimal digit and send to usart
+	;; | reg | in     | out        |
+	;; |-----+--------+------------|
+	;; | W   | nibble | hexa digit |
+	call nibble_to_hexa
 
 t_write_char:
 	banksel PIR3
@@ -266,15 +280,14 @@ t_write_char:
 	movwf  TX1REG
 	return
 
-print_nibble:	      ; nibble -- char
-	;; Convert nibble to ascii and put to the screen
-	andlw   0x0f
-	addlw   0xf6
-	IFCARRY addlw   0x7
-	addlw   0x3a
-	goto t_write_char
-
-print_octet:			; octet any -- octet 0x20
+print_octet_w:
+	movwf INDF0
+print_octet:
+	;; Print octet followed by space.
+	;; | reg   | in             | out          |
+	;; |-------+----------------+--------------|
+	;; | INDF0 | octet to print | unchanged    |
+	;; | W     | unused         | returns 0x20 |
 	swapf INDF0, W
 	call print_nibble
 	movf INDF0, W
@@ -282,9 +295,14 @@ print_octet:			; octet any -- octet 0x20
 	movlw 0x20
 	goto t_write_char
 
-put_string_in_code:		; any length -- 0 unspecified
-;;; Write string pointed from FSR1 till zero octet and newline
-;;; get FSR1 from TOS
+put_string_in_code:
+	;; Write W chars in code pointed from TOS,followed by CLRF
+	;; | reg   | in               | out         |
+	;; |-------+------------------+-------------|
+	;; | W     | length of text   | undefined   |
+	;; | TOS   | address to print | returned to |
+	;; | INDF0 | destroyed        | 0           |
+	;; | FSR1  | destroyed        | undefined   |
 	movwi INDF0
 	banksel TOSH
 	movf TOSH, W
