@@ -208,6 +208,7 @@ main_loop:
 	addlw   '9'+1		; add back to original value
 	banksel LATA
 	movwf   LATA
+main_print:
 	call    t_write_char
 	call    oled_send_char
 
@@ -216,10 +217,14 @@ main_ok:
 	UART_PRINT "Ok\r\n>"
 	goto main_loop
 
+not_a_digit:
+	addlw '0'
+	goto main_print
+
 maybe_digit:
 	;; Receives char-'9'-1; adds back 9+1 to find out if it is a digit.
 	addlw 0x0a
-	IFNCARRY goto main_ok	; not a digit, ignore
+	IFNCARRY goto not_a_digit; not a digit
 	call dispatcher		;
 	goto main_loop
 
