@@ -235,14 +235,17 @@ dispatcher:
 	goto oled_put_picture1			;2
 	goto oled_put_picture2 			;3
 	goto fill_r0_low			;4
-	goto main_loop			;5
+	goto print_position			;5
 	goto main_loop			;6
 	goto main_loop			;7
 	goto main_loop			;8
 	goto main_loop			;9
 
-;;; ---------------- Utilities ------------------
-tos_to_fsr1:
+print_position:
+	CALL1 print_octet_w, rownum
+	banksel rownum
+	movf rownum, W
+	goto print_octet_w
 
 ;;; ---------------- UART input ------------------
 do_receive:
