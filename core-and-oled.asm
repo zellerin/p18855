@@ -82,18 +82,18 @@ eot:
 
 	banksel 0xf00  ; ----------- BANK 30, 0xf.. -----------------
 	MOVLWF  ANSELC, 0xe5 ; digital input for RX-USB, RC3, RC4
-	MOVLWF  ANSELB, -1  ; default - no digital input
-	movwf   ANSELA ; default; no digital input
-	movwf   WPUB   ; enable all pulups
-	MOVWF   WPUA
-	MOVWF   WPUC
+	;MOVLWF  ANSELB, -1  ; default - no digital input
+	;movwf   ANSELA ; default; no digital input
+	;MOVLWF  WPUB, -1   ; enable all pulups
+	;MOVWF   WPUA
+	;MOVWF   WPUC
 	MOVLWF  WPUE, 0x08
-	clrf    ODCONA 		; default
-	clrf    ODCONB		; default
-	clrf    ODCONC		; default
-	movwf   SLRCONA		; slew rate, default -1, BUG here
-	movwf   SLRCONB
-	movwf   SLRCONC
+	; clrf    ODCONA 		; default
+	; clrf    ODCONB		; default
+	; clrf    ODCONC		; default
+	; movwf   SLRCONA		; slew rate, default -1, BUG here
+	; movwf   SLRCONB
+	; movwf   SLRCONC
 	MOVLWF  RC0PPS, 0x10	; TX/CK
 	MOVLWF  RC4PPS, 0x15	; SDA1
 	MOVLWF  RC3PPS, 0x14	; SCL1
@@ -104,12 +104,12 @@ eot:
 	MOVLWF  SSP1CLKPPS, 0x13	; RC3
 
 ;;; osc_init:
-	banksel OSCCON1
-	MOVLWF  OSCCON1,0x62 	; HFINTOSC, divider 4 - default for config
-	clrf    OSCCON3		; default
-	clrf    OSCEN		; default
-	MOVLWF  OSCFRQ, 0x02	; 4Mhz, default for config
-	clrf    OSCTUNE		; minimum frequency - BUG
+	;banksel OSCCON1
+	;MOVLWF  OSCCON1,0x62 	; HFINTOSC, divider 4 - default for config
+	;clrf    OSCCON3		; default
+	;clrf    OSCEN		; default
+	;MOVLWF  OSCFRQ, 0x02	; 4Mhz, default for config
+	;clrf    OSCTUNE		; minimum frequency - BUG
 
 ;;; SSP1 specific init (see also pins)
 	banksel SSP1ADD
